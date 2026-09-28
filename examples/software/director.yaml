@@ -1,0 +1,15 @@
+# Closed-loop Director config (course field names). Paths are relative to this file.
+prompt: spec.md
+coder_model: sonnet
+evaluator_model: haiku
+evaluator: hybrid               # tests must pass AND the judge must agree the spec is met
+max_iterations: 5
+execution_command: "{python} -m pytest tests -q -p no:cacheprovider"
+context_editable:
+  - src/opportunity_scorer.py
+context_read_only:
+  - src/opportunity_types.py
+  - tests/test_opportunity_scorer.py
+  - fixtures/opportunities.json
+budget_usd: 2.0
+mock_solution: solution         # used only when PAC_RUNNER=mock

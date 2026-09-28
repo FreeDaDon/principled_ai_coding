@@ -1,0 +1,20 @@
+roles:
+  - name: report-reader
+    permissions:
+      - service: s3
+        actions: [ListBucket, GetObject]
+        resources: ["arn:aws:s3:::govopp-reports/*", "arn:aws:s3:::govopp-reports"]
+        conditions:
+          - {operator: IpAddress, key: "aws:SourceIp", value: "10.0.0.0/8"}
+  - name: deployer
+    permissions:
+      - service: ecs
+        actions: [UpdateService, DescribeServices]
+        resources: ["arn:aws:ecs:us-east-1:111122223333:service/prod/api"]
+        conditions:
+          - {operator: StringEquals, key: "aws:PrincipalTag/team", value: platform}
+      - service: iam
+        actions: [PassRole]
+        resources: ["arn:aws:iam::111122223333:role/ecs-task-api"]
+        conditions:
+          - {operator: StringEquals, key: "iam:PassedToService", value: ecs-tasks.amazonaws.com}

@@ -1,0 +1,14 @@
+prompt: spec.md
+coder_model: sonnet
+evaluator_model: haiku
+evaluator: hybrid
+max_iterations: 5
+execution_command: "{python} -m pytest tests -q -p no:cacheprovider"
+context_editable:
+  - src/plan_guard.py
+context_read_only:
+  - src/plan_types.py
+  - tests/test_plan_guard.py
+  - fixtures/plan.json
+budget_usd: 2.0
+mock_solution: solution

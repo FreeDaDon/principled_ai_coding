@@ -1,0 +1,16 @@
+prompt: spec.md
+coder_model: sonnet
+evaluator_model: haiku
+evaluator: hybrid
+max_iterations: 5
+execution_command: "{python} -m pytest tests -q -p no:cacheprovider"
+context_editable:
+  - src/iam_policy.py
+context_read_only:
+  - src/iam_types.py
+  - tests/test_iam_policy.py
+  - fixtures/access_model.yaml
+  - fixtures/legacy_policy.json
+  - fixtures/used_actions.json
+budget_usd: 2.0
+mock_solution: solution

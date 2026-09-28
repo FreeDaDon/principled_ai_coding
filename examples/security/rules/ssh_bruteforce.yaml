@@ -1,0 +1,6 @@
+id: SSH-BF-001
+title: SSH brute force from a single source
+outcome: failure
+threshold: 5
+window_seconds: 60
+group_by: source_ip

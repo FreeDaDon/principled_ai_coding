@@ -1,0 +1,10 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "AdminBreakGlass", "Effect": "Allow", "Action": "*", "Resource": "*"},
+    {"Sid": "Reports", "Effect": "Allow", "Action": ["s3:*"], "Resource": ["arn:aws:s3:::govopp-reports/*"]},
+    {"Sid": "Ops", "Effect": "Allow", "Action": ["ec2:TerminateInstances", "ec2:DescribeInstances"], "Resource": "*"},
+    {"Sid": "Pass", "Effect": "Allow", "Action": ["iam:PassRole"], "Resource": ["arn:aws:iam::111122223333:role/any"]},
+    {"Sid": "DenyDelete", "Effect": "Deny", "Action": ["s3:DeleteBucket"], "Resource": "*"}
+  ]
+}

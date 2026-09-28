@@ -1,0 +1,10 @@
+[
+  {"notice_id": "N-001", "title": "Cloud migration support", "agency": "GSA", "naics_code": "541512",
+   "set_aside": "SBA", "response_deadline": "2026-10-30", "estimated_value": 450000},
+  {"notice_id": "N-002", "title": "Janitorial services", "agency": "VA", "naics_code": "561720",
+   "set_aside": null, "response_deadline": "2026-10-20", "estimated_value": 90000},
+  {"notice_id": "N-003", "title": "Cyber assessment", "agency": "DHS", "naics_code": "541519",
+   "set_aside": "WOSB", "response_deadline": "2026-10-02", "estimated_value": null},
+  {"notice_id": "N-004", "title": "Legacy data center exit", "agency": "DOE", "naics_code": "541512",
+   "set_aside": null, "response_deadline": "2026-09-01", "estimated_value": 2000000}
+]

@@ -1,0 +1,16 @@
+prompt: spec.md
+coder_model: sonnet
+evaluator_model: haiku
+evaluator: hybrid
+max_iterations: 5
+execution_command: "{python} -m pytest tests -q -p no:cacheprovider"
+context_editable:
+  - src/log_triage.py
+context_read_only:
+  - src/triage_types.py
+  - rules/ssh_bruteforce.yaml
+  - tests/test_log_triage.py
+  - fixtures/auth_positive.log
+  - fixtures/auth_negative.log
+budget_usd: 2.0
+mock_solution: solution
