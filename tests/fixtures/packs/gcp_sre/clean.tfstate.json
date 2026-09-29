@@ -1,0 +1,30 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.8.5",
+  "values": {
+    "root_module": {
+      "resources": [
+        {"address": "google_service_account.api", "mode": "managed", "type": "google_service_account", "name": "api",
+         "values": {"account_id": "api", "email": "api@acme-prod.iam.gserviceaccount.com"}},
+        {"address": "google_project_iam_member.api_pubsub", "mode": "managed", "type": "google_project_iam_member", "name": "api_pubsub",
+         "values": {"project": "acme-prod", "role": "roles/pubsub.subscriber", "member": "serviceAccount:api@acme-prod.iam.gserviceaccount.com"}},
+        {"address": "google_project_iam_member.viewer", "mode": "managed", "type": "google_project_iam_member", "name": "viewer",
+         "values": {"project": "acme-prod", "role": "roles/viewer", "member": "group:sre@acme.example"}},
+        {"address": "google_storage_bucket.private", "mode": "managed", "type": "google_storage_bucket", "name": "private",
+         "values": {"name": "acme-private", "public_access_prevention": "enforced", "uniform_bucket_level_access": true}},
+        {"address": "google_compute_firewall.iap_ssh", "mode": "managed", "type": "google_compute_firewall", "name": "iap_ssh",
+         "values": {"name": "iap-ssh", "direction": "INGRESS", "source_ranges": ["35.235.240.0/20"],
+                    "allow": [{"protocol": "tcp", "ports": ["22"]}]}},
+        {"address": "google_sql_database_instance.db", "mode": "managed", "type": "google_sql_database_instance", "name": "db",
+         "values": {"name": "db", "deletion_protection": true,
+                    "settings": [{"ip_configuration": [{"ipv4_enabled": false}],
+                                  "backup_configuration": [{"enabled": true}]}]}},
+        {"address": "google_container_cluster.main", "mode": "managed", "type": "google_container_cluster", "name": "main",
+         "values": {"name": "main", "enable_legacy_abac": false,
+                    "private_cluster_config": [{"enable_private_nodes": true}],
+                    "master_authorized_networks_config": [{"cidr_blocks": [{"cidr_block": "10.10.0.0/16"}]}],
+                    "workload_identity_config": [{"workload_pool": "acme-prod.svc.id.goog"}]}}
+      ]
+    }
+  }
+}

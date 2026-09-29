@@ -5,6 +5,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLES = ["software", "devops", "security", "iam"]
+PACK_FIXTURES = REPO / "tests" / "fixtures" / "packs"
 
 
 @pytest.fixture(autouse=True)
@@ -22,3 +23,9 @@ def example_copy(tmp_path):
         shutil.copytree(REPO / "examples" / name, dst, ignore=shutil.ignore_patterns("__pycache__"))
         return dst
     return _copy
+
+
+@pytest.fixture
+def packs() -> Path:
+    """Pack fixtures: planted issues (fake credentials only) plus one clean input per pack."""
+    return PACK_FIXTURES

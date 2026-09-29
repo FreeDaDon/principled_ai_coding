@@ -7,3 +7,4 @@
 - Editing agents run through `core.boundaries.guarded_run`. Never add Bash to the coder/editor tools, and never use `--dangerously-skip-permissions`.
 - Examples: `src/` holds stubs (they must fail their tests), `solution/src/` the reference implementation. Run the Director on a copy, not in place.
 - Import layering: `core` depends on nothing in the repo; `adws/adw_modules` depends on `core`; `director_loop` and the ADW scripts depend on both.
+- Domain packs (`core/packs/`, docs in `docs/packs.md`): analyzers are deterministic, run nothing from their input, and scrub untrusted text (`core.security.snippet`). Findings reach an agent as a file path, never inline, through the read-only `architect` role. Every rule id needs a positive and a negative test in `tests/test_pack_*.py`. Pack fixtures hold fake credentials only.

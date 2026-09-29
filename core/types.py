@@ -6,7 +6,7 @@ parse failure is a failed attempt, never a pass.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -174,3 +174,71 @@ class DirectorResult(BaseModel):
     run_dir: str = ""
     history: list[IterationRecord] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
+
+
+# ----------------------------------------------------------------------------- domain packs
+FindingSeverity = Literal["critical", "high", "medium", "low", "info"]
+SEVERITY_ORDER: dict[str, int] = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+PackName = Literal["mcp_gov", "gcp_sre"]
+Priority = Literal["P1", "P2", "P3", "P4"]
+RiskRating = Literal["critical", "high", "medium", "low"]
+
+
+class Finding(BaseModel):
+    """One deterministic result. Every string that came from analyzed input is redacted, stripped and capped."""
+
+    rule_id: str                      # stable id, e.g. "MCP-SCOPE-BROAD", "INJ-CONCEAL", "KAFKA-ISR"
+    title: str
+    severity: FindingSeverity
+    category: str                     # e.g. "rbac", "prompt-injection", "kafka", "iam"
+    resource: str = ""                # server, file, resource address, member
+    location: str = ""                # "path:line" or "server:tools[0].description"
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    recommendation: str = ""
+
+
+class AnalysisReport(BaseModel):
+    pack: PackName
+    tool: str                         # e.g. "mcp_manifest", "gcp_tf"
+    input: str
+    findings: list[Finding] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+
+    @property
+    def max_severity(self) -> str:
+        return max((f.severity for f in self.findings), key=lambda s: SEVERITY_ORDER[s], default="info")
+
+    def blocking(self, threshold: str = "high") -> list[Finding]:
+        return [f for f in self.findings if SEVERITY_ORDER[f.severity] >= SEVERITY_ORDER[threshold]]
+
+
+class AssessmentAction(BaseModel):
+    """One proposed action. Text for a human reviewer; nothing in it is ever executed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(max_length=300)
+    priority: Priority
+    rationale: str = Field(max_length=4000)
+    finding_refs: list[str] = Field(default_factory=list, max_length=100)
+    requires_human_approval: bool
+    proposed_change: str = Field(default="", max_length=4000)
+
+
+class FalsePositive(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_ref: str = Field(max_length=300)
+    reason: str = Field(max_length=2000)
+
+
+class AgentAssessment(BaseModel):
+    """The strict JSON the interpretation step must return. Malformed output is a failed step."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    risk_rating: RiskRating
+    summary: str = Field(max_length=4000)
+    prioritized_actions: list[AssessmentAction] = Field(default_factory=list, max_length=50)
+    false_positives: list[FalsePositive] = Field(default_factory=list, max_length=100)

@@ -41,6 +41,7 @@ check for (`tests/test_examples.py` asserts that the stubs fail).
 | Hard design where a planner and an executor help | `adw_architect_editor.py` | 4 (syllabus) / 5 |
 | The third time you do the same kind of task ("three makes a pattern") | write an ADW | 6 (syllabus 5) |
 | Unattended implementation with a test command that gives real feedback | Director loop | 7 (syllabus 6) |
+| Vetting an untrusted AI connector (MCP server, skill, plugin) or triaging a GCP, Kafka or Node.js incident export | domain pack: `adw_domain_pack.py` | beyond the course |
 
 ## Layout
 
@@ -50,17 +51,20 @@ check for (`tests/test_examples.py` asserts that the stubs fail).
 | `core/idk.py` | Information-dense keywords: vocabulary, `LOCATION: ACTION DETAIL` parser, density score, prompt-level check |
 | `core/pitfalls.py` | The six pitfalls (too little or too much context, prompt, model) as a linter |
 | `core/llm.py` | `ClaudeRunner` (`claude -p`, least-privilege tools per role) and `MockRunner` |
+| `core/packs/` | Domain packs: deterministic analyzers for MCP governance (`mcp_gov`) and GCP SRE (`gcp_sre`) that emit typed findings; registry and CLI. See [docs/packs.md](docs/packs.md) |
 | `core/boundaries.py` | Context bounds enforced in code: out-of-bounds edits are reverted; checkpoint rollback |
 | `core/execution.py` | Deterministic command runner (argv, allowlisted env, timeout) |
-| `specs/templates/` | 5-layer templates: feature, bugfix, refactor, infra_change, detection_rule, iam_policy |
+| `specs/templates/` | 5-layer templates: feature, bugfix, refactor, infra_change, detection_rule, iam_policy, ai_connector_review, gcp_incident |
 | `specs/spec_validator.py` | Parses and validates specs (layers, IDK-led tasks, context consistency, density) |
 | `specs/spec_to_tests.py` | Spec-to-test generator: pytest contract tests from the spec's signatures (`--llm` for behavioral tests) |
-| `adws/` | `adw_doctor`, `adw_spec_runner`, `adw_architect_editor`, `adw_version_release` |
+| `adws/` | `adw_doctor`, `adw_spec_runner`, `adw_architect_editor`, `adw_version_release`, `adw_domain_pack` |
 | `adws/adw_modules/` | run state, git helpers, context and token budget, cost router and budget, read-only prompt cache |
 | `director_loop/` | `engine.py` (5-stage loop), `evaluator.py` (deterministic, llm, hybrid), `feedback.py` (stack-trace hand-off) |
-| `.claude/commands/` | `/bluf` `/idk` `/spec` `/architect` `/director` `/heal` |
+| `.claude/commands/` | `/bluf` `/idk` `/spec` `/architect` `/director` `/heal`, plus the pack reviewers `/mcp_review` `/gcp_triage` |
 | `.claude/settings.json` | Permission boundaries: no `.env` or credential reads, no destructive git, cloud or IAM commands |
 | `examples/` | software (GovOpp opportunity scorer), devops (Terraform plan guard), security (sshd brute-force rule), iam (least-privilege policy generation and audit) |
+| `docs/packs.md` | The two domain packs: every tool and rule id, commands, the agent's role, safety model, how to extend |
+| `tests/fixtures/packs/` | Planted issues (fake credentials only) and a clean input per pack |
 | `docs/lessons.md` | Each lesson, both numberings, and where it lives in code; Aider-to-Claude command map |
 
 ## The Director
@@ -109,6 +113,12 @@ ones, and a malformed judge reply counts as a failure.
 - **Read-only prompt cache.** `cache.py` stores replies keyed by the normalized prompt and the context file hashes.
 - **Spec-to-test generator.** `spec_to_tests.py` builds contract tests from a spec, giving the Director something to close the loop against.
 - **Pitfall linter.** `core/pitfalls.py` runs before every spec execution.
+- **Domain packs.** `mcp_gov` (AI connector intake: manifest, OAuth scopes, prompt injection, exfiltration) and `gcp_sre` (Terraform/IAM audit, Splunk and Kafka log triage, Node.js stack traces) are deterministic analyzers with stable rule ids. A read-only agent interprets the findings file and returns strict JSON; the workflow only ever writes a report. See [docs/packs.md](docs/packs.md).
+
+```bash
+uv run python -m core.packs.registry mcp_gov vendor/connector/ --fail-on high        # exit 2 on a high finding
+PAC_RUNNER=mock uv run adws/adw_domain_pack.py --pack gcp_sre --input tests/fixtures/packs/gcp_sre
+```
 
 Candidates deliberately left out: parallel best-of-N implementations (they multiply cost; add them
 only for high-value tasks), and container sandboxing per run (use your own Docker or Firecracker).

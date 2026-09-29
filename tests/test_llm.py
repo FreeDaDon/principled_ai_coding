@@ -59,7 +59,7 @@ def test_render_template_strips_frontmatter(tmp_path):
 def test_shipped_commands_render():
     root = Path(__file__).resolve().parents[1] / ".claude" / "commands"
     names = sorted(p.stem for p in root.glob("*.md"))
-    assert names == ["architect", "bluf", "director", "heal", "idk", "spec"]
+    assert names == ["architect", "bluf", "director", "gcp_triage", "heal", "idk", "mcp_review", "spec"]
     for p in root.glob("*.md"):
         assert "$ARGUMENTS" not in render_template(p, ["x"])
 

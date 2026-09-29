@@ -1,0 +1,8 @@
+2025-06-30T10:00:00Z INFO request completed status=200 path=/api/orders
+2025-06-30T10:00:10Z INFO request completed status=200 path=/api/orders
+2025-06-30T10:00:20Z INFO request completed status=200 path=/api/orders
+2025-06-30T10:00:30Z INFO cache warmed entries=120
+2025-06-30T10:00:40Z INFO request completed status=200 path=/api/orders
+2025-06-30T10:00:50Z INFO request completed status=200 path=/api/orders
+2025-06-30T10:01:00Z INFO consumer lag=12 group=orders-consumer topic=orders partition=0
+2025-06-30T10:01:10Z INFO request completed status=200 path=/api/orders
