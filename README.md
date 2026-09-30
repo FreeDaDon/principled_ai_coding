@@ -52,6 +52,7 @@ check for (`tests/test_examples.py` asserts that the stubs fail).
 | `core/pitfalls.py` | The six pitfalls (too little or too much context, prompt, model) as a linter |
 | `core/llm.py` | `ClaudeRunner` (`claude -p`, least-privilege tools per role) and `MockRunner` |
 | `core/packs/` | Domain packs: deterministic analyzers for MCP governance (`mcp_gov`) and GCP SRE (`gcp_sre`) that emit typed findings; registry and CLI. See [docs/packs.md](docs/packs.md) |
+| `core/jev.py` | Jev typed decisions (TypeSafe System One): one schema-validated choice in place of an agent call, mock by default, advisory only |
 | `core/boundaries.py` | Context bounds enforced in code: out-of-bounds edits are reverted; checkpoint rollback |
 | `core/execution.py` | Deterministic command runner (argv, allowlisted env, timeout) |
 | `specs/templates/` | 5-layer templates: feature, bugfix, refactor, infra_change, detection_rule, iam_policy, ai_connector_review, gcp_incident |
@@ -104,6 +105,7 @@ ones, and a malformed judge reply counts as a failure.
 - **Allowlisted subprocess environment.** Agents and test commands don't inherit your shell secrets.
 - **Isolated agents.** Sub-agents run with `--setting-sources project --strict-mcp-config`, so your personal `~/.claude` CLAUDE.md, hooks and MCP servers don't leak into their context. In testing this cut a trivial call from $0.023 to $0.003.
 - **Budgets.** Opus is downgraded to Sonnet at 80% of `budget_usd`, and calls stop at 100%. Each call also passes `--max-budget-usd`.
+- **Jev is advisory, never a gate.** A Jev answer can stand in for an agent's fixed-option judgment only above a confidence floor, and the agent path runs on low confidence or any error. Mock and live replies pass the same wire-contract check (declared options only, a distribution that sums to 1); a violation is an error, never a degraded answer. Redirects are refused so the bearer token cannot leave the endpoint.
 - **Cache only what is safe to replay.** Only read-only roles (architect, judge) are cached, keyed by the normalized prompt plus the hashes of the context files.
 
 ## Beyond the course
@@ -134,6 +136,8 @@ For worktree isolation, a GitHub issue-to-PR flow, and a live control plane, see
 | `PAC_PROJECT_ROOT` | repo root | where `.pac/` run state and cache live |
 | `CLAUDE_CODE_PATH` | `claude` | path to the Claude Code CLI |
 | `ANTHROPIC_API_KEY` | unset | optional; the `claude` login works without it |
+| `JEV_BACKEND` | `mock` | `typesafe`, `openrouter`, or `live` (typesafe first) call real Jev; without the matching key, or on any other value, it stays on mock |
+| `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY` | unset | Jev credentials. Read in-process only, never passed to agent or test subprocesses |
 
 ## Requirements
 
