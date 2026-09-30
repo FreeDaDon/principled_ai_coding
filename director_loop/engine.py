@@ -26,7 +26,7 @@ from adws.adw_modules import git_ops
 from adws.adw_modules.cache import PromptCache
 from adws.adw_modules.router import Budget, downgrade
 from adws.adw_modules.state import RunState
-from core.boundaries import EditableCheckpoint, guarded_run
+from core.boundaries import EditableCheckpoint, check_bounds, guarded_run
 from core.execution import run_command
 from core.llm import Runner, get_runner
 from core.security import fence_untrusted, resolve_inside
@@ -65,8 +65,7 @@ class Director:
         self.state = state or RunState("director")
         self.stop_on_stagnation = stop_on_stagnation
         self.budget = Budget(config.budget_usd)
-        for rel in config.context_editable + config.context_read_only:
-            resolve_inside(self.base_dir, rel)  # config paths must stay inside the working dir
+        check_bounds(self.base_dir, config.context_editable + config.context_read_only)
         self.evaluator = Evaluator(
             config.evaluator, self.runner, config.evaluator_model, self.base_dir,
             config.context_editable, config.context_read_only, config.context_token_budget,

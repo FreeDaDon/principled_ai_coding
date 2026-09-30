@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from core.llm import Runner
@@ -48,14 +49,19 @@ class PromptCache:
         return os.getenv("PAC_CACHE", "1") != "0"
 
     def get(self, key: str) -> AgentResponse | None:
-        p = self.dir / f"{key}.json"
-        if not p.exists():
+        """A missing, truncated or corrupt entry is a miss: the call runs again and rewrites it."""
+        try:
+            resp = AgentResponse.model_validate_json((self.dir / f"{key}.json").read_text())
+        except (OSError, ValueError):
             return None
-        resp = AgentResponse.model_validate_json(p.read_text())
         return resp.model_copy(update={"cached": True, "usage": resp.usage.model_copy(update={"cost_usd": 0.0})})
 
     def put(self, key: str, response: AgentResponse) -> None:
-        (self.dir / f"{key}.json").write_text(json.dumps(response.model_dump()))
+        """Atomic, so a concurrent run never reads a half-written entry."""
+        fd, tmp = tempfile.mkstemp(dir=self.dir, prefix=f".{key}.")
+        with os.fdopen(fd, "w") as f:
+            json.dump(response.model_dump(), f)
+        os.replace(tmp, self.dir / f"{key}.json")
 
 
 def cached_run(runner: Runner, request: AgentRequest, cache: PromptCache | None) -> AgentResponse:

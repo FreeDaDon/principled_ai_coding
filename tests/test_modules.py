@@ -59,3 +59,16 @@ def test_run_state_is_persisted():
     s.step("one", ok=True)
     data = (s.dir / "state.json").read_text()
     assert '"workflow": "test"' in data and '"one"' in data
+
+
+@pytest.mark.parametrize("corrupt", ['{"output": "par', "", "not json", '{"success": "maybe"}'])
+def test_a_corrupt_cache_entry_is_a_miss_and_is_rewritten(tmp_path, corrupt):
+    cache = PromptCache(tmp_path / "cache")
+    request = AgentRequest(role="architect", prompt="plan it", working_dir=str(tmp_path))
+    entry = tmp_path / "cache" / f"{cache_key(request)}.json"
+    entry.write_text(corrupt)
+    runner = MockRunner()
+    first = cached_run(runner, request, cache)
+    assert not first.cached and len(runner.calls) == 1
+    assert cached_run(runner, request, cache).cached and len(runner.calls) == 1  # the rewrite is a valid entry
+    assert [p.name for p in (tmp_path / "cache").iterdir()] == [entry.name]      # no temp files left behind

@@ -46,6 +46,12 @@ def snapshot(root: Path) -> Snapshot:
     return Snapshot({p.relative_to(root).as_posix(): p.read_bytes() for p in _walk(root)})
 
 
+def check_bounds(root: Path, paths: list[str]) -> None:
+    """Every context path must resolve inside root. Call it before any agent runs; raises SecurityError."""
+    for rel in paths:
+        resolve_inside(root, rel)
+
+
 def changed_files(before: Snapshot, root: Path) -> list[str]:
     after = snapshot(root)
     keys = set(before.files) | set(after.files)
