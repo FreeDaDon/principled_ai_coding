@@ -15,13 +15,25 @@ import sys
 
 REQUIRED = ["uv", "git", "claude"]
 OPTIONAL = ["gh", "terraform"]
+TIMEOUT_S = 20
+
+
+def _run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """None when the command hangs or cannot start; the doctor reports that instead of crashing."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 def version(tool: str) -> str | None:
     if not shutil.which(tool):
         return None
-    r = subprocess.run([tool, "--version"], capture_output=True, text=True, timeout=20, check=False)
-    return (r.stdout or r.stderr).strip().splitlines()[0] if r.returncode == 0 else None
+    r = _run([tool, "--version"])
+    if r is None or r.returncode != 0:
+        return None
+    lines = (r.stdout or r.stderr).strip().splitlines()
+    return lines[0] if lines else "installed"
 
 
 def claude_auth() -> tuple[bool, str]:
@@ -29,7 +41,9 @@ def claude_auth() -> tuple[bool, str]:
         return True, "ANTHROPIC_API_KEY is set"
     if not shutil.which("claude"):
         return False, "claude CLI not installed"
-    r = subprocess.run(["claude", "auth", "status", "--json"], capture_output=True, text=True, timeout=20, check=False)
+    r = _run(["claude", "auth", "status", "--json"])
+    if r is None:
+        return False, f"`claude auth status` did not answer within {TIMEOUT_S}s"
     try:
         status = json.loads(r.stdout)
     except json.JSONDecodeError:
@@ -43,7 +57,7 @@ def main() -> int:
     rows: list[tuple[str, bool, str, bool]] = [("python", sys.version_info >= (3, 12), sys.version.split()[0], True)]
     for tool in REQUIRED + OPTIONAL:
         v = version(tool)
-        rows.append((tool, v is not None, v or "not found", tool in REQUIRED))
+        rows.append((tool, v is not None, v or "not found or not responding", tool in REQUIRED))
     ok, detail = claude_auth()
     rows.append(("claude auth", ok, detail, True))
     runner = os.getenv("PAC_RUNNER", "claude")

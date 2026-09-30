@@ -98,3 +98,20 @@ def test_architect_editor_rejects_context_outside_the_working_dir(tmp_path, caps
     assert architect_edit("UPDATE x.py: ADD f", tmp_path, ["../x.py"], [], runner=runner) == 2
     assert architect_edit("UPDATE x.py: ADD f", tmp_path, ["x.py"], ["/etc/passwd"], runner=runner) == 2
     assert runner.calls == []
+
+
+def test_doctor_reports_a_hanging_or_silent_tool_instead_of_crashing(monkeypatch, capsys):
+    import adws.adw_doctor as doctor
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "claude":
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")  # exits 0, prints nothing
+
+    monkeypatch.setattr(doctor.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert doctor.main() == 1
+    out = capsys.readouterr().out
+    assert "NOT READY: fix claude, claude auth" in out and "did not answer within 20s" in out
+    assert "ok    git          installed" in out and "not found or not responding" in out
