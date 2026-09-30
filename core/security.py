@@ -60,10 +60,15 @@ def sanitize_untrusted(text: str, max_chars: int = MAX_UNTRUSTED_CHARS) -> str:
     return out
 
 
+def injection_signals(text: str) -> list[str]:
+    """Known prompt-injection markers in text, lowercased and deduplicated."""
+    return sorted({m.group(0).lower() for m in _INJECTION_RE.finditer(text or "")})
+
+
 def fence_untrusted(text: str, label: str = "input") -> str:
     """Wrap untrusted content (logs, command output, payloads) in an explicit data boundary."""
     safe = sanitize_untrusted(text).replace("</untrusted", "&lt;/untrusted")
-    signals = sorted({m.group(0).lower() for m in _INJECTION_RE.finditer(text or "")})
+    signals = injection_signals(text)
     warning = f"\nWARNING: possible prompt-injection markers: {signals}.\n" if signals else ""
     return (
         f'<untrusted label="{label}">\n'

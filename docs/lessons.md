@@ -55,7 +55,7 @@ and automation.
 
 - **Principle:** you can AI-code programmatically. Script the recurring patterns: "three makes a pattern".
 - **Claude equivalent of `Coder.create(...).run(prompt)`:** `core.llm.ClaudeRunner().run(AgentRequest(role="coder", prompt=..., editable=[...], read_only=[...]))`, wrapped in `guarded_run` for enforced bounds.
-- **Code:** `adw_version_release.py` does the semver bump in code, has Claude write the changelog from commits, and runs `uv build`, commit and tag. `adw_spec_runner.py` and `adw_architect_editor.py` are ADWs too.
+- **Code:** `adw_version_release.py` does the semver bump in code, groups the changelog from commits, and runs `uv build`, commit and tag. The grouping is one Jev choice per commit subject (added, changed, fixed, other), with the subjects kept verbatim. It falls back to a Claude writer when any answer is under 0.7 confidence, Jev errors, a subject carries an injection marker, or there are more than 50 commits. That is the pattern for a fixed-option judgment: a typed decision first, the agent as the fallback. `adw_spec_runner.py` and `adw_architect_editor.py` are ADWs too.
 
 ## 7. The closed-loop Director and self-healing
 

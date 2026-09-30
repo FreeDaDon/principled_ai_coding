@@ -115,6 +115,7 @@ ones, and a malformed judge reply counts as a failure.
 - **Read-only prompt cache.** `cache.py` stores replies keyed by the normalized prompt and the context file hashes.
 - **Spec-to-test generator.** `spec_to_tests.py` builds contract tests from a spec, giving the Director something to close the loop against.
 - **Pitfall linter.** `core/pitfalls.py` runs before every spec execution.
+- **Jev for fixed-option judgments.** `adw_version_release.py` sorts commit subjects into Added, Changed, Fixed and Other with one Jev choice each ([TypeSafe](https://typesafe.ai) System One, `core/jev.py`) instead of a writer agent. The bullets are the commit subjects verbatim, so the changelog can only say what the commits say. Low confidence, an error, an injection marker or more than 50 commits hands the entry to the writer agent as before. The bump, build, commit and tag never depend on Jev. No other call site qualifies: the rest either generate or edit (coder, editor, architect, spec-to-tests) or act as a gate (the Director's judge, pack `--fail-on`), and a gate stays out of Jev's reach.
 - **Domain packs.** `mcp_gov` (AI connector intake: manifest, OAuth scopes, prompt injection, exfiltration) and `gcp_sre` (Terraform/IAM audit, Splunk and Kafka log triage, Node.js stack traces) are deterministic analyzers with stable rule ids. A read-only agent interprets the findings file and returns strict JSON; the workflow only ever writes a report. See [docs/packs.md](docs/packs.md).
 
 ```bash
