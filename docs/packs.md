@@ -52,6 +52,10 @@ stack traces is analyzed by `sre_logs` and by `node_trace`; pass `--tool` to run
 Exit codes. Registry: 0 ok, 1 bad input, 2 `--fail-on` tripped. Workflow: 0 done, 1 the workflow failed (bad
 input, agent error, malformed assessment, input changed), 2 `--fail-on` tripped (the report is still written).
 
+Fail closed. Inputs are untrusted, so an analyzer that crashes on a file never ends the run and never passes the file:
+the file gets one `INPUT-ERROR` finding at **high** severity (it cannot be cleared until it can be analyzed), and the
+other files are still analyzed. `--fail-on high` therefore blocks on it.
+
 ## Pack 1: `mcp_gov` (AI connector intake, risk assessment, release authorization)
 
 `release_gate` in `metrics` is `blocked` (any critical or high), `needs_review`, or `eligible_for_human_review`.
@@ -94,8 +98,10 @@ Every string in it also goes through the injection scanner, so a poisoned tool d
 | `MCP-PROVENANCE-VERSION`, `MCP-PROVENANCE-SOURCE` | low | floating or missing version; no repository/publisher |
 | `MCP-DESCRIPTION-LONG` | low | description over 1500 characters (room to hide instructions) |
 
-**`connector_scan`** scans a file or directory of text (skills, scripts, docs, configs). Lockfiles, minified
-files, binaries, symlinks and `.env` files are skipped.
+**`connector_scan`** scans every file of a connector (skills, scripts, docs, configs, minified bundles, files with
+no extension). Only lockfiles, source maps, media, symlinks and `.env` files are ignored. A file it cannot read (binary,
+over 1 MB, unreadable) is reported as `SCAN-SKIPPED`, never dropped. Past 200 findings per file it keeps the most
+severe ones and counts the rest in `metrics.findings_truncated`.
 
 | Rule id | Severity | Fires when |
 |---|---|---|
@@ -114,6 +120,7 @@ files, binaries, symlinks and `.env` files are skipped.
 | `EXE-DYNAMIC` | high | `eval`, `exec`, `shell=True`, `pickle.loads`, unsafe YAML |
 | `SUP-REMOTE-EXEC` | critical | `curl ... \| sh`, encoded PowerShell, base64 piped to a shell |
 | `SUP-INSTALL` | medium | install hook, or install from a URL or custom index |
+| `SCAN-SKIPPED` | high | a file could not be scanned (binary, over 1 MB, unreadable), so it cannot be cleared |
 
 **The agent's role (`/mcp_review`).** Separates real risk from false positives (a security document that quotes an
 attack, say), groups findings into actions ranked P1 to P4, and writes a release recommendation (reject, fix and

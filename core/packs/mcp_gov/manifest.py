@@ -123,6 +123,8 @@ def looks_like_manifest(data: Any) -> bool:
         parse_servers(data)
     except ValueError:
         return False
+    except Exception:  # noqa: BLE001 - manifest-shaped but malformed: analyze_file must see it and fail closed
+        return True
     return True
 
 

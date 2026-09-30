@@ -61,9 +61,9 @@ def _detect_mcp_gov(path: Path) -> str | None:
     suffix = path.suffix.lower()
     if suffix in {".json", ".yml", ".yaml"} and manifest.looks_like_manifest(_load(path)):
         return "mcp_manifest"
-    if suffix in TEXT_SUFFIXES or path.name.upper() in TEXT_NAMES:
-        return "connector_scan"
-    return None
+    # Every other connector file is scanned: an extensionless install script or a native binary is part of what gets
+    # released. connector_scan reports what it cannot read instead of skipping it.
+    return None if injection.is_ignored(path) else "connector_scan"
 
 
 def _detect_gcp_sre(path: Path) -> str | None:
@@ -107,18 +107,26 @@ def scrub_report(report: AnalysisReport) -> AnalysisReport:
 
 
 def _input_error(pack: str, tool: str, path: Path, exc: Exception) -> AnalysisReport:
+    """Fail closed: an input the analyzer cannot read may hide anything, so it blocks at `--fail-on high`."""
     return AnalysisReport(
         pack=pack, tool=tool, input=str(path), summary="input could not be analyzed",  # type: ignore[arg-type]
         findings=[Finding(rule_id="INPUT-ERROR", title=f"Could not analyze input: {type(exc).__name__}",
-                          severity="low", category="input", resource=str(path), location=str(path),
-                          evidence={"error": str(exc)[:500]}, recommendation="Check the file format.")],
+                          severity="high", category="input", resource=str(path), location=str(path),
+                          evidence={"error": str(exc)[:500]},
+                          recommendation="Fix or remove the file; it cannot be cleared until it can be analyzed.")],
     )
 
 
-def _companions(pack: str, chosen: str, path: Path, explicit_tool: str | None, opts: dict[str, Any]) -> list[AnalysisReport]:
-    if explicit_tool is not None:
-        return []
-    return [PACK_TOOLS[pack][name](path, **opts) for name, applies in COMPANIONS.get((pack, chosen), ()) if applies(path)]
+def _analyze(pack: str, chosen: str, path: Path, explicit_tool: str | None, opts: dict[str, Any]) -> list[AnalysisReport]:
+    """One tool (plus its companions) on one file. Inputs are untrusted, so any analyzer crash is an INPUT-ERROR."""
+    try:
+        reports = [PACK_TOOLS[pack][chosen](path, **opts)]
+        if explicit_tool is None:
+            reports += [PACK_TOOLS[pack][name](path, **opts) for name, applies in COMPANIONS.get((pack, chosen), ())
+                        if applies(path)]
+        return reports
+    except Exception as exc:  # noqa: BLE001 - the analyzers are pure; a crash means malformed input, never a pass
+        return [_input_error(pack, chosen, path, exc)]
 
 
 def run_pack(pack: str, input_path: Path, tool: str | None = None, **opts: Any) -> list[AnalysisReport]:
@@ -133,8 +141,7 @@ def run_pack(pack: str, input_path: Path, tool: str | None = None, **opts: Any) 
 
     if not input_path.is_dir():
         chosen = tool or detect_tool(pack, input_path)
-        return [scrub_report(r) for r in
-                [PACK_TOOLS[pack][chosen](input_path, **opts), *_companions(pack, chosen, input_path, tool, opts)]]
+        return [scrub_report(r) for r in _analyze(pack, chosen, input_path, tool, opts)]
 
     reports: list[AnalysisReport] = []
     for file in iter_files(input_path):
@@ -144,12 +151,7 @@ def run_pack(pack: str, input_path: Path, tool: str | None = None, **opts: Any) 
             continue
         if tool is not None and INPUT_KIND.get(tool, tool) != detected:
             continue
-        chosen = tool or detected
-        try:
-            reports.append(PACK_TOOLS[pack][chosen](file, **opts))
-            reports.extend(_companions(pack, chosen, file, tool, opts))
-        except (ValueError, KeyError, TypeError) as exc:
-            reports.append(_input_error(pack, chosen, file, exc))
+        reports.extend(_analyze(pack, tool or detected, file, tool, opts))
     return [scrub_report(r) for r in reports]
 
 
