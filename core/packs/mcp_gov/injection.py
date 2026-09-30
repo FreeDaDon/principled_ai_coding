@@ -2,7 +2,8 @@
 
 Deterministic, regex-based, no LLM. Every snippet placed in evidence is redacted (known secret formats)
 and sanitized (control/bidi characters stripped, length capped) because the scanned text is attacker-controlled.
-Rule ids: INJ-* (instructions aimed at the model), EXF-* (data leaving), EXE-* (code execution), SUP-* (supply chain).
+Rule ids: INJ-* (instructions aimed at the model), EXF-* (data leaving), EXE-* (code execution), SUP-* (supply chain),
+SCAN-SKIPPED (a file that could not be scanned, so it cannot be cleared). Fail closed: nothing is dropped silently.
 """
 
 from __future__ import annotations
@@ -14,13 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.packs.inputs import iter_files, read_text_file
+from core.packs.inputs import DEFAULT_MAX_BYTES, iter_files, read_text_file
 from core.security import find_suspicious_unicode, snippet
-from core.types import AnalysisReport, Finding, FindingSeverity
+from core.types import SEVERITY_ORDER, AnalysisReport, Finding, FindingSeverity
 
 TOOL = "connector_scan"
 MAX_FINDINGS_PER_FILE = 200
-SKIP_SUFFIXES = (".lock", ".min.js", ".map", ".svg", ".png", ".jpg", ".gif", ".ico", ".woff", ".woff2", ".pdf")
+# Not code and not read by an agent. Minified JS is code, so it is scanned like any other script.
+SKIP_SUFFIXES = (".lock", ".map", ".svg", ".png", ".jpg", ".gif", ".ico", ".woff", ".woff2", ".pdf")
 SKIP_NAMES = frozenset({"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "uv.lock", "poetry.lock"})
 TAG_CHAR_RANGE = range(0xE0000, 0xE0080)  # Unicode "tag" block: invisible ASCII smuggling
 
@@ -188,31 +190,49 @@ def scan_text(text: str, source: str, line_offset: int = 0, location_prefix: str
     return findings
 
 
-def _skip(path: Path) -> bool:
+def is_ignored(path: Path) -> bool:
+    """Lockfiles, source maps and media: never scanned and never reported."""
     name = path.name.lower()
     return name in SKIP_NAMES or name.endswith(SKIP_SUFFIXES)
+
+
+def _unscanned(file: Path, rel: str) -> Finding:
+    """A file the scanner cannot read may hide anything, so it blocks like a high finding until a human reviews it."""
+    try:
+        too_big = file.stat().st_size > DEFAULT_MAX_BYTES
+    except OSError:
+        too_big = False
+    reason = f"larger than {DEFAULT_MAX_BYTES} bytes" if too_big else "binary or unreadable"
+    return _finding("SCAN-SKIPPED", "high", "coverage", f"File could not be scanned ({reason})", rel, rel,
+                    {"reason": reason}, "Review this file by hand, or remove it from the connector; it cannot be cleared "
+                    "automatically.")
 
 
 def analyze_file(path: Path, **opts: Any) -> AnalysisReport:
     """Scan one text file, or every text file under a directory, for injection/exfiltration/execution risks."""
     path = Path(path)
     findings: list[Finding] = []
-    scanned = 0
+    scanned = skipped = truncated = 0
     for file in iter_files(path):
-        if _skip(file):
+        if is_ignored(file):
             continue
+        rel = file.relative_to(path).as_posix() if path.is_dir() else str(file)
         text = read_text_file(file)
         if text is None:
+            skipped += 1
+            findings.append(_unscanned(file, rel))
             continue
         scanned += 1
-        rel = file.relative_to(path).as_posix() if path.is_dir() else str(file)
-        findings.extend(scan_text(text, rel)[:MAX_FINDINGS_PER_FILE])
+        worst_first = sorted(scan_text(text, rel), key=lambda f: -SEVERITY_ORDER[f.severity])  # the cap keeps the worst
+        truncated += max(0, len(worst_first) - MAX_FINDINGS_PER_FILE)
+        findings.extend(worst_first[:MAX_FINDINGS_PER_FILE])
     by_category: dict[str, int] = {}
     for f in findings:
         by_category[f.category] = by_category.get(f.category, 0) + 1
     blocked = any(f.severity in ("critical", "high") for f in findings)
     return AnalysisReport(
         pack="mcp_gov", tool=TOOL, input=str(path), findings=findings,
-        metrics={"files_scanned": scanned, "by_category": by_category,
+        metrics={"files_scanned": scanned, "files_unscanned": skipped, "findings_truncated": truncated,
+                 "by_category": by_category,
                  "release_gate": "blocked" if blocked else ("needs_review" if findings else "eligible_for_human_review")},
         summary=f"{len(findings)} injection/exfiltration finding(s) in {scanned} file(s)")
