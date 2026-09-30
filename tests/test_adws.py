@@ -69,7 +69,7 @@ def test_release_bumps_and_writes_changelog(tmp_path):
     text = (tmp_path / "pyproject.toml").read_text()
     assert 'version = "0.2.0"' in text and 'version = "9.9.9"' in text
     log = (tmp_path / "CHANGELOG.md").read_text()
-    assert log.startswith("# Changelog\n\n## v0.2.0") and "mock changelog entry" in log
+    assert log.startswith("# Changelog\n\n## v0.2.0") and "### Added\n- Add scorer" in log  # Jev path, no agent
     prepend_changelog(tmp_path / "CHANGELOG.md", "0.3.0", "- more", date(2026, 1, 1))
     assert (tmp_path / "CHANGELOG.md").read_text().index("v0.3.0") < (tmp_path / "CHANGELOG.md").read_text().index("v0.2.0")
 
