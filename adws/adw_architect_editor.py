@@ -16,9 +16,10 @@ from pathlib import Path
 
 from adws.adw_modules.cache import PromptCache, cached_run
 from adws.adw_modules.state import RunState
-from core.boundaries import guarded_run
+from core.boundaries import check_bounds, guarded_run
 from core.execution import run_command
 from core.llm import Runner, get_runner
+from core.security import SecurityError
 from core.types import AgentRequest
 from specs.spec_validator import parse_spec
 
@@ -72,6 +73,11 @@ def architect_edit(
     mock_solution: str | None = None,
     runner: Runner | None = None,
 ) -> int:
+    try:
+        check_bounds(working_dir, editable + read_only)
+    except SecurityError as exc:
+        print(f"FAIL: {exc}; nothing was run")
+        return 2
     runner = runner or get_runner()
     state = RunState("architect_editor")
     arch = AgentRequest(role="architect", prompt=architect_prompt(task, editable, read_only), model=architect_model,

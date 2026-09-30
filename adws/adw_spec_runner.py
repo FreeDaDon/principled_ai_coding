@@ -17,9 +17,10 @@ from pathlib import Path
 
 from adws.adw_modules.state import RunState
 from core import pitfalls
-from core.boundaries import guarded_run
+from core.boundaries import check_bounds, guarded_run
 from core.execution import run_command
 from core.llm import Runner, get_runner
+from core.security import SecurityError
 from core.types import AgentRequest, DirectorConfig, Spec
 from director_loop.engine import Director
 from specs.spec_validator import parse_spec, validate
@@ -59,6 +60,11 @@ def run_spec(
         print(f"  {issue.level:<7} {issue.layer}: {issue.message}")
     if not report.ok:
         print(f"FAIL: spec has errors, nothing was run ({spec_path})")
+        return 2
+    try:
+        check_bounds(working_dir, spec.editable_files + spec.read_only_files)
+    except SecurityError as exc:
+        print(f"FAIL: {exc}; nothing was run ({spec_path})")
         return 2
     for p in pitfalls.check(text, spec.editable_files, spec.read_only_files, model, "heavy", base_dir=working_dir):
         print(f"  pitfall {p.kind} ({p.severity}): {p.message} -> {p.fix}")

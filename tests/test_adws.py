@@ -78,3 +78,23 @@ def test_doctor_runs(capsys):
     code = doctor_main()
     out = capsys.readouterr().out
     assert code in (0, 1) and ("READY" in out) and "claude auth" in out
+
+
+def _escape_spec(example_copy):
+    work = example_copy("software")
+    (work / "spec.md").write_text((work / "spec.md").read_text().replace("src/opportunity_scorer.py", "../outside.py"))
+    return work
+
+
+def test_spec_runner_rejects_context_outside_the_working_dir_before_any_agent(example_copy, capsys):
+    work = _escape_spec(example_copy)
+    runner = MockRunner()
+    assert run_spec(work / "spec.md", work, validate_cmd="false", director_on_fail=2, runner=runner) == 2
+    assert runner.calls == [] and "escapes" in capsys.readouterr().out
+
+
+def test_architect_editor_rejects_context_outside_the_working_dir(tmp_path, capsys):
+    runner = MockRunner()
+    assert architect_edit("UPDATE x.py: ADD f", tmp_path, ["../x.py"], [], runner=runner) == 2
+    assert architect_edit("UPDATE x.py: ADD f", tmp_path, ["x.py"], ["/etc/passwd"], runner=runner) == 2
+    assert runner.calls == []
