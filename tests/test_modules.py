@@ -49,9 +49,18 @@ def test_cache_only_serves_read_only_roles(tmp_path):
 
 
 def test_cache_key_ignores_volatile_tokens(tmp_path):
-    a = AgentRequest(role="architect", prompt="run deadbeef at 2026-09-28T10:00:00Z", working_dir=str(tmp_path))
-    b = a.model_copy(update={"prompt": "run  cafebabe at 2026-09-29T11:00:00Z"})
+    a = AgentRequest(role="architect", prompt="run 3f9a0c1e at 2026-09-28T10:00:00Z", working_dir=str(tmp_path))
+    b = a.model_copy(update={"prompt": "run  a41b77d2 at 2026-09-29T11:00:00Z"})
     assert cache_key(a) == cache_key(b)
+
+
+@pytest.mark.parametrize(("x", "y"), [
+    ("assert 12345678 == 12345679", "assert 87654321 == 12345679"),   # 8-digit numbers are content
+    ("expected deadbeef", "expected cafebabe"),                        # hex words without digits are content
+])
+def test_cache_key_keeps_content_that_only_looks_volatile(tmp_path, x, y):
+    a = AgentRequest(role="evaluator", prompt=x, working_dir=str(tmp_path))
+    assert cache_key(a) != cache_key(a.model_copy(update={"prompt": y}))
 
 
 def test_run_state_is_persisted():
