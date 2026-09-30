@@ -20,7 +20,11 @@ from core.types import AgentRequest, AgentResponse
 from .state import project_root
 
 CACHEABLE_ROLES = {"architect", "evaluator"}
-_VOLATILE = [re.compile(r"\b[0-9a-f]{8}\b"), re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.+Z-]+")]
+# Run ids (8 hex chars) and ISO timestamps. A run id must mix digits and letters: a plain 8-digit number is content
+# (e.g. a value in test output) and masking it would let two different prompts share a cache entry. A rare all-digit
+# run id is then left unmasked, which only costs a cache miss.
+_VOLATILE = [re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{8}\b"),
+             re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.+Z-]+")]
 
 
 def normalize(prompt: str) -> str:
