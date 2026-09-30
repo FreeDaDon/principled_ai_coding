@@ -13,6 +13,9 @@ def isolated_runs(tmp_path, monkeypatch):
     """Run state and cache go to a temp dir; every test runs offline."""
     monkeypatch.setenv("PAC_PROJECT_ROOT", str(tmp_path / "pac_home"))
     monkeypatch.setenv("PAC_RUNNER", "mock")
+    monkeypatch.setenv("JEV_BACKEND", "mock")  # a live JEV_BACKEND or key in the shell must never reach a test
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("PAC_EXAMPLE_SRC", raising=False)
 
 

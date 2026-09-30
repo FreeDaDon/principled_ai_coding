@@ -242,3 +242,46 @@ class AgentAssessment(BaseModel):
     summary: str = Field(max_length=4000)
     prioritized_actions: list[AssessmentAction] = Field(default_factory=list, max_length=50)
     false_positives: list[FalsePositive] = Field(default_factory=list, max_length=100)
+
+
+# ----------------------------------------------------------------------------- Jev typed decisions
+# TypeSafe System One wire contract (POST {model, state, questions} -> {model, answers, usage}), choice
+# questions only. Advisory everywhere: a Jev answer never gates a test verdict, a security check or a release.
+JevBackend = Literal["mock", "typesafe", "openrouter"]
+
+
+class JevChoiceQuestion(BaseModel):
+    type: Literal["choice"] = "choice"
+    instructions: str = Field(min_length=1)
+    criteria: dict[str, str | None] = Field(min_length=1, max_length=255)  # option -> rubric (None = no detail)
+
+
+class JevChoiceAnswer(BaseModel):
+    type: Literal["choice"]
+    choice: str
+    probabilities: dict[str, float]
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class JevUsage(BaseModel):
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+
+
+class JevResponse(BaseModel):
+    """Provider extensions are ignored, not rejected; the declared fields are strict."""
+
+    model: str = Field(min_length=1)
+    answers: dict[str, JevChoiceAnswer]
+    usage: JevUsage
+
+
+class JevDecision(BaseModel):
+    """One validated choice plus where it came from. `choice` is always a declared option."""
+
+    choice: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    probabilities: dict[str, float]
+    backend: JevBackend
+    model: str
+    usage: JevUsage
