@@ -12,6 +12,9 @@ editable files once, before a loop starts, and puts them back if the loop fails.
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,30 +23,67 @@ from .security import resolve_inside
 from .types import AgentRequest, AgentResponse
 
 IGNORED_DIRS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", ".pac", "node_modules"}
-MAX_FILE_BYTES = 5_000_000
+MAX_FILE_BYTES = 5_000_000  # larger files are fingerprinted and backed up to disk instead of held in memory
 
 
 @dataclass
 class Snapshot:
-    files: dict[str, bytes] = field(default_factory=dict)  # relative posix path -> content
+    """The tree before an agent runs. Every regular file and symlink is tracked, so any change can be undone:
+    small files in memory, large files as a sha256 plus a backup copy, symlinks by target (never followed)."""
 
-    def digest(self, rel: str) -> str | None:
-        data = self.files.get(rel)
-        return hashlib.sha256(data).hexdigest() if data is not None else None
+    files: dict[str, bytes] = field(default_factory=dict)  # relative posix path -> content
+    large: dict[str, str] = field(default_factory=dict)    # relative posix path -> sha256 of content
+    links: dict[str, str] = field(default_factory=dict)    # relative posix path -> symlink target text
+    backups: tempfile.TemporaryDirectory[str] | None = None
+
+    def paths(self) -> set[str]:
+        return set(self.files) | set(self.large) | set(self.links)
+
+    def state(self, rel: str) -> str | None:
+        if rel in self.links:
+            return f"link:{self.links[rel]}"
+        if rel in self.files:
+            return f"file:{hashlib.sha256(self.files[rel]).hexdigest()}"
+        return f"file:{self.large[rel]}" if rel in self.large else None
+
+    def backup_of(self, rel: str) -> Path:
+        assert self.backups is not None, "snapshot was taken without backups"
+        return Path(self.backups.name) / self.large[rel]
+
+    def close(self) -> None:
+        if self.backups is not None:
+            self.backups.cleanup()
 
 
 def _walk(root: Path) -> list[Path]:
-    out = []
-    for p in root.rglob("*"):
-        if any(part in IGNORED_DIRS for part in p.relative_to(root).parts):
-            continue
-        if p.is_file() and not p.is_symlink() and p.stat().st_size <= MAX_FILE_BYTES:
-            out.append(p)
-    return out
+    """Regular files and symlinks under root; symlinked directories are listed, never entered."""
+    return [p for p in root.rglob("*")
+            if not any(part in IGNORED_DIRS for part in p.relative_to(root).parts) and (p.is_symlink() or p.is_file())]
 
 
-def snapshot(root: Path) -> Snapshot:
-    return Snapshot({p.relative_to(root).as_posix(): p.read_bytes() for p in _walk(root)})
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def snapshot(root: Path, backup: bool = True) -> Snapshot:
+    """`backup=False` records state only (enough to compare, not to restore large files)."""
+    snap = Snapshot()
+    for p in _walk(root):
+        rel = p.relative_to(root).as_posix()
+        if p.is_symlink():
+            snap.links[rel] = os.readlink(p)
+        elif p.stat().st_size <= MAX_FILE_BYTES:
+            snap.files[rel] = p.read_bytes()
+        else:
+            snap.large[rel] = digest = _sha256(p)
+            if backup:
+                snap.backups = snap.backups or tempfile.TemporaryDirectory(prefix="pac-snapshot-")
+                shutil.copyfile(p, Path(snap.backups.name) / digest)
+    return snap
 
 
 def check_bounds(root: Path, paths: list[str]) -> None:
@@ -53,9 +93,8 @@ def check_bounds(root: Path, paths: list[str]) -> None:
 
 
 def changed_files(before: Snapshot, root: Path) -> list[str]:
-    after = snapshot(root)
-    keys = set(before.files) | set(after.files)
-    return sorted(k for k in keys if before.files.get(k) != after.files.get(k))
+    after = snapshot(root, backup=False)
+    return sorted(rel for rel in before.paths() | after.paths() if before.state(rel) != after.state(rel))
 
 
 def normalize(paths: list[str]) -> set[str]:
@@ -68,14 +107,21 @@ def out_of_bounds(before: Snapshot, root: Path, editable: list[str]) -> list[str
 
 
 def restore(before: Snapshot, root: Path, paths: list[str]) -> None:
-    """Put each path back to its snapshot state: rewrite modified/deleted files, delete created ones."""
+    """Put each path back to its snapshot state: rewrite changed files and links, delete created ones.
+    The path itself is never followed: a symlink is replaced, not written through."""
     for rel in paths:
-        target = resolve_inside(root, rel)
-        if rel in before.files:
+        target = resolve_inside(root, Path(rel).parent) / Path(rel).name
+        if target.is_symlink() or (target.exists() and (rel in before.links or rel not in before.paths())):
+            target.unlink()
+        if rel in before.links:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(before.links[rel], target)
+        elif rel in before.files:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(before.files[rel])
-        elif target.exists():
-            target.unlink()
+        elif rel in before.large:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(before.backup_of(rel), target)
 
 
 class EditableCheckpoint:
@@ -106,8 +152,11 @@ def guarded_run(runner: Runner, request: AgentRequest) -> tuple[AgentResponse, l
     """Run an editing agent and revert every change outside request.editable. Returns (response, reverted)."""
     root = Path(request.working_dir)
     before = snapshot(root)
-    response = runner.run(request)
-    bad = out_of_bounds(before, root, request.editable)
-    if bad:
-        restore(before, root, bad)
+    try:
+        response = runner.run(request)
+        bad = out_of_bounds(before, root, request.editable)
+        if bad:
+            restore(before, root, bad)
+    finally:
+        before.close()
     return response, bad
