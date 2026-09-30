@@ -115,3 +115,11 @@ def test_doctor_reports_a_hanging_or_silent_tool_instead_of_crashing(monkeypatch
     out = capsys.readouterr().out
     assert "NOT READY: fix claude, claude auth" in out and "did not answer within 20s" in out
     assert "ok    git          installed" in out and "not found or not responding" in out
+
+
+def test_architect_editor_cli_dry_run_passes_in_mock_mode(example_copy, capsys):
+    from adws.adw_architect_editor import main as architect_main
+
+    root = example_copy("devops")
+    code = architect_main(["--spec", str(root / "spec.md"), "--mock-solution", "solution", "--validate-cmd", VALIDATE])
+    assert code == 0 and "DONE: plan applied and validated" in capsys.readouterr().out

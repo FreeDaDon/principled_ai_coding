@@ -154,9 +154,17 @@ MockHandler = Callable[[AgentRequest, int], str]
 def _mock_coder(request: AgentRequest, attempt: int) -> str:
     """First attempt changes nothing (so the loop sees a real failure); later attempts copy the
     reference solution over the editable files. Deterministic stand-in for a coding agent."""
-    solution = request.metadata.get("mock_solution")
-    if attempt == 1 or not solution:
+    if attempt == 1:
         return "mock: first attempt, no changes"
+    return mock_apply_solution(request, attempt)
+
+
+def mock_apply_solution(request: AgentRequest, attempt: int) -> str:
+    """Copy the reference solution over the editable files on every call. For single-shot workflows
+    (architect/editor) that have no retry loop for a failing first attempt to exercise."""
+    solution = request.metadata.get("mock_solution")
+    if not solution:
+        return "mock: no reference solution, no changes"
     root = Path(request.working_dir)
     copied = []
     for rel in request.editable:
