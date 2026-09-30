@@ -74,3 +74,15 @@ def test_mock_coder_applies_solution_on_second_attempt(tmp_path):
     assert (tmp_path / "a.py").read_text() == "broken"
     runner.run(r)
     assert (tmp_path / "a.py").read_text() == "fixed"
+
+
+def test_mock_apply_solution_applies_on_the_first_call_and_needs_a_solution(tmp_path):
+    from core.llm import mock_apply_solution
+
+    (tmp_path / "sol").mkdir()
+    (tmp_path / "sol" / "a.py").write_text("solved")
+    (tmp_path / "a.py").write_text("stub")
+    r = req("editor", working_dir=str(tmp_path), editable=["a.py"], metadata={"mock_solution": "sol"})
+    assert mock_apply_solution(r, 1) == "mock: applied reference solution to ['a.py']"
+    assert (tmp_path / "a.py").read_text() == "solved"
+    assert mock_apply_solution(req("editor", working_dir=str(tmp_path), editable=["a.py"]), 1).endswith("no changes")

@@ -12,13 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from adws.adw_modules.cache import PromptCache, cached_run
 from adws.adw_modules.state import RunState
 from core.boundaries import check_bounds, guarded_run
 from core.execution import run_command
-from core.llm import Runner, get_runner
+from core.llm import MockRunner, Runner, get_runner, mock_apply_solution
 from core.security import SecurityError
 from core.types import AgentRequest
 from specs.spec_validator import parse_spec
@@ -139,8 +140,11 @@ def main(argv: list[str] | None = None) -> int:
         task, editable, read_only, working_dir = a.task, a.editable, a.read_only or [], a.working_dir or Path.cwd()
     else:
         ap.error("give a task with --editable, or --spec")
+    # One editor call, no retry loop: the mock editor applies the reference solution at once instead of
+    # failing its first attempt the way the Director's mock coder does.
+    runner = MockRunner({"editor": mock_apply_solution}) if os.getenv("PAC_RUNNER") == "mock" else None
     return architect_edit(task, working_dir.resolve(), editable, read_only, a.architect_model, a.editor_model,
-                          a.plan_only, a.validate_cmd, a.mock_solution)
+                          a.plan_only, a.validate_cmd, a.mock_solution, runner)
 
 
 if __name__ == "__main__":
