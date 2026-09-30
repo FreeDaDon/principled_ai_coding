@@ -36,3 +36,55 @@ def test_generated_contracts_pass_on_solution(example_copy, name):
     r = subprocess.run([sys.executable, "-m", "pytest", str(out), "-q", "-p", "no:cacheprovider"],
                        cwd=root, env=env, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout[-2000:]
+
+
+def test_commas_inside_strings_and_braces_do_not_split_params():
+    assert _split_params("sep: str = ',', n: int") == ["sep", "n"]
+    assert _split_params('quote: str = "a,b", q2: str = \'"\'') == ["quote", "q2"]
+    assert _split_params('opts: dict = {"a": 1, "b": 2}, c: int') == ["opts", "c"]
+    assert _split_params("a: int = max(1, 2), b: tuple[int, int] = (1, 2)") == ["a", "b"]
+
+
+SPEC = """# T
+## High-Level Objective
+- x
+## Mid-Level Objective
+- x
+## Implementation Notes
+- x
+## Context
+### Beginning context
+- my-module.py
+### Ending context
+- my-module.py
+## Low-Level Tasks
+1. One
+```
+UPDATE my-module.py: CREATE def helper(x) without a return annotation, then CREATE def run(sep: str = ',') -> int
+```
+2. Two
+```
+UPDATE my-module.py: CREATE def wide(
+    a: int,
+    b: str = "x, y",
+) -> str
+AND class Thing
+```
+"""
+
+
+def test_multi_line_signatures_are_read_and_do_not_swallow_the_next_def():
+    c = extract_contracts(parse_spec(SPEC))
+    assert [(f.name, f.params, f.returns) for f in c.functions] == [("run", ["sep"], "int"), ("wide", ["a", "b"], "str")]
+
+
+def test_a_non_identifier_module_generates_runnable_tests(tmp_path):
+    (tmp_path / "spec.md").write_text(SPEC)
+    (tmp_path / "my-module.py").write_text(
+        "def run(sep: str = ',') -> int:\n    return 0\n\n\n"
+        "def wide(a: int, b: str = 'x, y') -> str:\n    return b\n\n\nclass Thing:\n    pass\n")
+    out = tmp_path / "test_contract.py"
+    assert main([str(tmp_path / "spec.md"), "--out", str(out)]) == 0
+    r = subprocess.run([sys.executable, "-m", "pytest", str(out), "-q", "-p", "no:cacheprovider"],
+                       cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(tmp_path)}, capture_output=True, text=True)
+    assert r.returncode == 0 and "3 passed" in r.stdout, r.stdout[-2000:]
