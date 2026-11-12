@@ -28,7 +28,7 @@ from adws.adw_modules import git_ops
 from core.execution import run_command
 from core.jev import JevClient, JevError
 from core.llm import Runner, get_runner
-from core.security import fence_untrusted, injection_signals
+from core.security import fence_untrusted, injection_signals, safe_subprocess_env
 from core.types import AgentRequest, JevChoiceQuestion
 
 Bump = Literal["patch", "minor", "major"]
@@ -132,7 +132,7 @@ def release(
     prepend_changelog(changelog, new, entry, date.today())
     steps = [f"version {old} -> {new}", f"CHANGELOG.md ({len(commits)} commit(s), {source})"]
     if build:
-        result = run_command("uv build", root, timeout_s=600)
+        result = run_command("uv build", root, timeout_s=600, env=safe_subprocess_env())
         if result.exit_code != 0:
             print(f"FAIL: `uv build` exit {result.exit_code}\n{result.output[-1500:]}")
             return 1

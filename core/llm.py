@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from .security import resolve_inside, safe_subprocess_env
+from .security import SecurityError, resolve_inside, safe_subprocess_env
 from .types import AgentRequest, AgentResponse, Role, Usage
 
 CLAUDE_PATH = os.getenv("CLAUDE_CODE_PATH", "claude")
@@ -36,6 +36,13 @@ ROLE_TOOLS: dict[Role, list[str]] = {
     "writer": [],
 }
 EDITING_ROLES: set[Role] = {"coder", "editor"}
+# Passed with --settings on every call: --setting-sources project reads the WORKING DIRECTORY's settings, so a
+# scratch copy without .claude/ would otherwise run agents with no deny rules at all.
+AGENT_SETTINGS = {"permissions": {"deny": [
+    *(f"{tool}({pattern})" for tool in ("Read", "Edit", "Write")
+      for pattern in ("**/.env", "**/.env.*", "~/.ssh/**", "~/.aws/**", "~/.config/gcloud/**", "~/.config/gh/**",
+                      "~/.docker/config.json", "~/.netrc", "~/.kube/**", "~/.claude/.credentials.json")),
+]}}
 
 
 # ----------------------------------------------------------------------------- templates
@@ -105,9 +112,10 @@ class ClaudeRunner:
     def build_command(self, request: AgentRequest) -> list[str]:
         tools = ROLE_TOOLS[request.role]
         cmd = [CLAUDE_PATH, "-p", "--model", request.model, "--output-format", "stream-json", "--verbose"]
-        # Isolate agents from the operator's personal ~/.claude config (CLAUDE.md, hooks, MCP servers):
-        # deterministic context, and a ~7x cheaper floor per call. Project settings still apply.
-        cmd += ["--setting-sources", "project", "--strict-mcp-config"]
+        # Isolate agents from the operator's personal ~/.claude config (CLAUDE.md, hooks, MCP servers): deterministic
+        # context and a ~7x cheaper floor per call. --restricted confines the file tools to the working directory and
+        # ignores settings files, so the deny policy travels with every call in --settings instead.
+        cmd += ["--restricted", "--setting-sources", "project", "--strict-mcp-config", "--settings", json.dumps(AGENT_SETTINGS)]
         cmd += ["--tools", ",".join(tools)]
         if tools:
             cmd += ["--allowedTools", ",".join(tools)]
@@ -184,7 +192,9 @@ def _mock_architect(request: AgentRequest, attempt: int) -> str:
 
 def _mock_evaluator(request: AgentRequest, attempt: int) -> str:
     passed = "Exit code: 0\n" in request.prompt
-    return json.dumps({"success": passed, "feedback": None if passed else "mock judge: execution failed"})
+    return json.dumps({"objectives": [{"objective": "the execution command passes", "met": passed,
+                                       "evidence": "mock judge: exit code in the prompt"}],
+                       "feedback": None if passed else "mock judge: execution failed"})
 
 
 def _mock_writer(request: AgentRequest, attempt: int) -> str:
@@ -216,6 +226,16 @@ class MockRunner:
         if request.json_schema is not None:
             structured = extract_json(output)
         return AgentResponse(output=output, success=True, model=f"mock-{request.model}", structured=structured)
+
+
+def guard_reference_solution(runner: Runner, root: Path, mock_solution: str | None) -> None:
+    """A live agent can Read/Grep the whole working tree, so a reference solution inside it would be copied, not
+    solved. Only the mock runner may run next to one. Raises SecurityError."""
+    if mock_solution and not isinstance(runner, MockRunner) and resolve_inside(root, mock_solution).exists():
+        raise SecurityError(
+            f"reference solution {mock_solution!r} is inside {root}, where a live agent can read it. "
+            f"Delete it from this copy for a real run, or run with PAC_RUNNER=mock."
+        )
 
 
 def get_runner() -> Runner:

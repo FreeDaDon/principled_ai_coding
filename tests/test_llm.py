@@ -48,6 +48,28 @@ def test_role_tool_boundaries_in_command():
     assert "--json-schema" in judge and judge[judge.index("--max-budget-usd") + 1] == "0.50"
     assert all("dangerously" not in part for part in coder + arch + judge)
     assert coder[coder.index("--setting-sources") + 1] == "project" and "--strict-mcp-config" in coder
+    assert "--restricted" in coder and "--restricted" in judge
+
+
+def test_every_agent_call_carries_the_deny_policy():
+    for role in ("coder", "editor", "architect", "evaluator", "writer"):
+        cmd = ClaudeRunner().build_command(req(role))
+        deny = json.loads(cmd[cmd.index("--settings") + 1])["permissions"]["deny"]
+        assert {"Read(~/.ssh/**)", "Read(**/.env)", "Read(~/.aws/**)", "Write(**/.env)"} <= set(deny)
+
+
+def test_reference_solution_is_refused_next_to_a_live_runner(tmp_path):
+    import pytest
+
+    from core.llm import guard_reference_solution
+    from core.security import SecurityError
+
+    (tmp_path / "solution").mkdir()
+    with pytest.raises(SecurityError, match="live agent can read it"):
+        guard_reference_solution(ClaudeRunner(), tmp_path, "solution")
+    guard_reference_solution(MockRunner(), tmp_path, "solution")
+    guard_reference_solution(ClaudeRunner(), tmp_path, None)
+    guard_reference_solution(ClaudeRunner(), tmp_path, "gone")
 
 
 def test_render_template_strips_frontmatter(tmp_path):

@@ -19,9 +19,9 @@ from adws.adw_modules.cache import PromptCache, cached_run
 from adws.adw_modules.state import RunState
 from core.boundaries import check_bounds, guarded_run
 from core.execution import run_command
-from core.llm import MockRunner, Runner, get_runner, mock_apply_solution
+from core.llm import MockRunner, Runner, get_runner, guard_reference_solution, mock_apply_solution
 from core.security import SecurityError
-from core.types import AgentRequest
+from core.types import AgentRequest, Sandbox
 from specs.spec_validator import parse_spec
 
 
@@ -73,13 +73,15 @@ def architect_edit(
     validate_cmd: str | None = None,
     mock_solution: str | None = None,
     runner: Runner | None = None,
+    sandbox: Sandbox = "none",
 ) -> int:
+    runner = runner or get_runner()
     try:
         check_bounds(working_dir, editable + read_only)
+        guard_reference_solution(runner, working_dir, mock_solution)
     except SecurityError as exc:
         print(f"FAIL: {exc}; nothing was run")
         return 2
-    runner = runner or get_runner()
     state = RunState("architect_editor")
     arch = AgentRequest(role="architect", prompt=architect_prompt(task, editable, read_only), model=architect_model,
                         working_dir=str(working_dir), editable=editable, read_only=read_only, log_dir=str(state.dir))
@@ -106,7 +108,7 @@ def architect_edit(
         print(f"  reverted out-of-bounds edits: {reverted}")
     cost = plan_resp.usage.cost_usd + edit_resp.usage.cost_usd
     if validate_cmd:
-        result = run_command(validate_cmd, working_dir)
+        result = run_command(validate_cmd, working_dir, sandbox=sandbox)
         state.step("validate", exit_code=result.exit_code)
         if result.exit_code != 0:
             print(f"FAIL: plan applied but `{validate_cmd}` exit {result.exit_code} (cost ${cost:.4f}). Plan: {plan_path}")
@@ -128,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan-only", action="store_true")
     ap.add_argument("--validate-cmd")
     ap.add_argument("--mock-solution", help="reference solution dir (PAC_RUNNER=mock only)")
+    ap.add_argument("--sandbox", choices=["none", "bwrap"], default="none",
+                    help="bwrap: run the validation command with no network and no access to your home directory")
     a = ap.parse_args(argv)
 
     if a.spec:
@@ -144,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     # failing its first attempt the way the Director's mock coder does.
     runner = MockRunner({"editor": mock_apply_solution}) if os.getenv("PAC_RUNNER") == "mock" else None
     return architect_edit(task, working_dir.resolve(), editable, read_only, a.architect_model, a.editor_model,
-                          a.plan_only, a.validate_cmd, a.mock_solution, runner)
+                          a.plan_only, a.validate_cmd, a.mock_solution, runner, a.sandbox)
 
 
 if __name__ == "__main__":

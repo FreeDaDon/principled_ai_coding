@@ -1,4 +1,5 @@
 import json
+import shutil
 
 import pytest
 
@@ -44,6 +45,35 @@ def test_stagnation_stops_early(example_copy):
     root = example_copy("software")
     result = director_for(root, MockRunner({"coder": lambda r, a: "no-op"}), max_iterations=5).direct()
     assert result.stop_reason == "stagnation" and result.iterations == 2
+
+
+def test_oscillating_failures_count_as_stagnation(example_copy):
+    root = example_copy("software")
+    stub = (root / "src/opportunity_scorer.py").read_text()
+    broken = {1: "raise ImportError('a')\n", 2: "raise KeyError('b')\n", 3: "raise ImportError('a')\n"}
+
+    def flip_flop(request, attempt):
+        (root / "src/opportunity_scorer.py").write_text(stub + broken.get(attempt, ""))
+        return f"attempt {attempt}"
+
+    result = director_for(root, MockRunner({"coder": flip_flop}), max_iterations=5).direct()
+    assert result.stop_reason == "stagnation" and result.iterations == 3
+
+
+def test_live_runner_refuses_a_copy_holding_the_reference_solution(example_copy):
+    from core.llm import ClaudeRunner
+    from core.security import SecurityError
+
+    root = example_copy("software")
+    with pytest.raises(SecurityError, match="reference solution"):
+        director_for(root, ClaudeRunner())
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap not installed")
+def test_loop_passes_inside_the_bwrap_sandbox(example_copy):
+    root = example_copy("software")
+    result = director_for(root, sandbox="bwrap").direct()
+    assert result.success and result.history[0].execution.command.endswith("-p no:cacheprovider")
 
 
 def test_keep_on_fail_leaves_edits(example_copy):

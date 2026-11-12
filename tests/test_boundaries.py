@@ -120,7 +120,7 @@ def test_guarded_run_cleans_up_backups_even_when_the_agent_raises(tmp_path, monk
     (tmp_path / "data.bin").write_bytes(b"L" * 100)
     made = []
     real = b.snapshot
-    monkeypatch.setattr(b, "snapshot", lambda root, backup=True: made.append(real(root, backup)) or made[-1])
+    monkeypatch.setattr(b, "snapshot", lambda root: made.append(real(root)) or made[-1])
 
     def boom(request, attempt):
         raise RuntimeError("agent crashed")
@@ -129,3 +129,54 @@ def test_guarded_run_cleans_up_backups_even_when_the_agent_raises(tmp_path, monk
     with pytest.raises(RuntimeError):
         guarded_run(MockRunner({"coder": boom}), request)
     assert not os.path.exists(made[0].backups.name)
+
+
+def git_repo(path):
+    import subprocess
+
+    for args in (["init", "-q"], ["config", "user.email", "t@example.invalid"], ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=path, check=True)
+    return lambda *args: subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+
+
+def test_clean_tracked_files_are_kept_as_git_blobs_and_restored(tmp_path):
+    git = git_repo(tmp_path)
+    (tmp_path / "tracked.py").write_text("committed")
+    (tmp_path / "dirty.py").write_text("v1")
+    git("add", "tracked.py", "dirty.py")
+    git("commit", "-qm", "init")
+    (tmp_path / "dirty.py").write_text("v2 uncommitted")
+    (tmp_path / "untracked.py").write_text("new")
+    before = snapshot(tmp_path)
+    assert set(before.blobs) == {"tracked.py"} and set(before.files) == {"dirty.py", "untracked.py"}
+    for name in ("tracked.py", "dirty.py", "untracked.py"):
+        (tmp_path / name).write_text("tampered")
+    bad = out_of_bounds(before, tmp_path, [])
+    assert bad == ["dirty.py", "tracked.py", "untracked.py"]
+    restore(before, tmp_path, bad)
+    assert [(tmp_path / n).read_text() for n in ("tracked.py", "dirty.py", "untracked.py")] == [
+        "committed", "v2 uncommitted", "new"]
+
+
+def test_snapshot_inside_a_repo_subdirectory_uses_paths_relative_to_it(tmp_path):
+    git = git_repo(tmp_path)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "a.py").write_text("a")
+    git("add", "sub/a.py")
+    git("commit", "-qm", "init")
+    before = snapshot(tmp_path / "sub")
+    assert before.blobs.keys() == {"a.py"}
+    (tmp_path / "sub" / "a.py").write_text("changed")
+    assert out_of_bounds(before, tmp_path / "sub", []) == ["a.py"]
+
+
+def test_files_with_an_unchanged_stat_are_not_read_again(tmp_path, monkeypatch):
+    (tmp_path / "a.py").write_text("a")
+    (tmp_path / "b.py").write_text("b")
+    before = snapshot(tmp_path)
+    compared = []
+    real = b.Snapshot.matches
+    monkeypatch.setattr(b.Snapshot, "matches", lambda self, root, rel, path: compared.append(rel) or real(self, root, rel, path))
+    (tmp_path / "b.py").write_text("b2")
+    assert out_of_bounds(before, tmp_path, []) == ["b.py"]
+    assert compared == ["b.py"]

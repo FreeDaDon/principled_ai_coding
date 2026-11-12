@@ -18,6 +18,7 @@ spec.md ──▶ spec_validator ──▶ editor (or architect ▶ editor) ─�
 
 ```bash
 uv sync
+git config core.hooksPath .githooks           # run scripts/check.sh on every commit
 uv run adws/adw_doctor.py                     # environment + Claude auth check
 scripts/check.sh                              # ruff + mypy + tests, fully offline
 
@@ -25,8 +26,15 @@ scripts/check.sh                              # ruff + mypy + tests, fully offli
 cp -r examples/software /tmp/sw
 PAC_RUNNER=mock uv run python -m director_loop.engine /tmp/sw/director.yaml
 
-# Real run (uses your `claude` login or ANTHROPIC_API_KEY; capped by budget_usd in the config)
+# Real run (uses your `claude` login or ANTHROPIC_API_KEY; capped by budget_usd in the config).
+# Delete the reference solution first: a live coder can read the whole copy, and the Director refuses to start
+# next to it.
+rm -r /tmp/sw/solution
 uv run python -m director_loop.engine /tmp/sw/director.yaml
+
+# Measure it: pass rate, iterations and cost over all four examples, appended to evals/results.jsonl
+PAC_RUNNER=mock uv run adws/adw_eval.py                  # $0 wiring check
+uv run adws/adw_eval.py --budget-usd 2 --sandbox bwrap   # live (or run the manual `live-eval` workflow)
 ```
 
 Run examples on a copy. A successful run rewrites the example's stub, which the example tests
@@ -58,11 +66,13 @@ check for (`tests/test_examples.py` asserts that the stubs fail).
 | `specs/templates/` | 5-layer templates: feature, bugfix, refactor, infra_change, detection_rule, iam_policy, ai_connector_review, gcp_incident |
 | `specs/spec_validator.py` | Parses and validates specs (layers, IDK-led tasks, context consistency, density) |
 | `specs/spec_to_tests.py` | Spec-to-test generator: pytest contract tests from the spec's signatures (`--llm` for behavioral tests) |
-| `adws/` | `adw_doctor`, `adw_spec_runner`, `adw_architect_editor`, `adw_version_release`, `adw_domain_pack` |
+| `adws/` | `adw_doctor`, `adw_spec_runner`, `adw_architect_editor`, `adw_version_release`, `adw_domain_pack`, `adw_eval` |
 | `adws/adw_modules/` | run state, git helpers, context and token budget, cost router and budget, read-only prompt cache |
 | `director_loop/` | `engine.py` (5-stage loop), `evaluator.py` (deterministic, llm, hybrid), `feedback.py` (stack-trace hand-off) |
 | `.claude/commands/` | `/bluf` `/idk` `/spec` `/architect` `/director` `/heal`, plus the pack reviewers `/mcp_review` `/gcp_triage` |
-| `.claude/settings.json` | Permission boundaries: no `.env` or credential reads, no destructive git, cloud or IAM commands |
+| `.claude/settings.json` | Permission boundaries for interactive sessions (no `.env` or credential reads, no destructive git, cloud or IAM commands, narrow `uv run` allowlist) and the `commit_gate.py` hook |
+| `.githooks/pre-commit` | Runs `scripts/check.sh` on every commit once `core.hooksPath` points at it |
+| `.github/workflows/` | `check.yml` (offline gate on every PR) and `live-eval.yml` (manual, real Claude, needs `ANTHROPIC_API_KEY`) |
 | `examples/` | software (GovOpp opportunity scorer), devops (Terraform plan guard), security (sshd brute-force rule), iam (least-privilege policy generation and audit) |
 | `docs/packs.md` | The two domain packs: every tool and rule id, commands, the agent's role, safety model, how to extend |
 | `tests/fixtures/packs/` | Planted issues (fake credentials only) and a clean input per pack |
@@ -79,6 +89,7 @@ evaluator_model: haiku
 evaluator: hybrid                   # deterministic | llm | hybrid
 max_iterations: 5
 execution_command: "{python} -m pytest tests -q -p no:cacheprovider"
+sandbox: bwrap                      # none (default) | bwrap: no network, no home dir for the test run
 context_editable: [src/opportunity_scorer.py]
 context_read_only: [src/opportunity_types.py, tests/test_opportunity_scorer.py]
 budget_usd: 2.0
@@ -88,21 +99,26 @@ Each iteration: build the prompt (the spec on the first pass; after that, spec +
 failures + judge feedback + tries left) → Claude edits → any change outside `context_editable` is
 reverted → run `execution_command` → evaluate.
 
-The loop stops on **passed**, **max_iterations**, **stagnation** (the same failure twice),
+The loop stops on **passed**, **max_iterations**, **stagnation** (a failure seen before, so A-B-A counts),
 **budget**, or **agent_error**. On failure the editable files are rolled back unless you pass
 `--keep-on-fail`. Every prompt, output and verdict is logged under `.pac/runs/<run_id>/`.
 
 **Hybrid evaluation** is the default. The test command must exit 0, and only then does the LLM
-judge check the spec was actually met. The judge can reject green tests. It can never pass red
-ones, and a malformed judge reply counts as a failure.
+judge check the spec was actually met. The judge returns one verdict per objective with the evidence for it,
+and success is computed in code as "every objective met". The judge can reject green tests. It can never
+pass red ones, and a malformed judge reply counts as a failure.
 
 ## Guarantees (enforced in code, covered by tests)
 
 - **Model output is untrusted.** Judge replies are parsed into pydantic models. Paths from configs and models must resolve inside the working directory.
 - **Context bounds.** The coder may change only its editable files. A coder that "fixes" failing tests by editing them has that edit reverted and is told why.
 - **Least privilege per role.** Coder and editor get Read, Edit, Write, Glob and Grep with no Bash. The architect is read-only. The evaluator and writer get no tools. `--dangerously-skip-permissions` is never used.
+- **Agents stay in the working directory.** Every call passes `--restricted` (file tools confined to the working directory) and `--settings` with a deny policy for `.env` files and credential directories, so the policy holds on a scratch copy that has no `.claude/`.
+- **Agent-written code runs without your secrets.** The execution command gets no `ANTHROPIC_API_KEY` and a throwaway `HOME`. With `sandbox: bwrap` it also has no network and cannot see your home directory or `/tmp`.
+- **No reference answers next to a live agent.** With a live runner, the Director, the spec runner and the architect/editor refuse to start while the config's `mock_solution` directory exists in the working tree.
 - **Untrusted text is fenced.** Command output, logs and commit messages go into prompts inside an `<untrusted>` block, with prompt-injection markers flagged.
 - **Allowlisted subprocess environment.** Agents and test commands don't inherit your shell secrets.
+- **The gate runs on every commit.** `.githooks/pre-commit` runs `scripts/check.sh`. In Claude Code sessions, the `commit_gate.py` hook runs the gate when the git hook is not installed, and blocks `--no-verify` either way.
 - **Isolated agents.** Sub-agents run with `--setting-sources project --strict-mcp-config`, so your personal `~/.claude` CLAUDE.md, hooks and MCP servers don't leak into their context. In testing this cut a trivial call from $0.023 to $0.003.
 - **Budgets.** Opus is downgraded to Sonnet at 80% of `budget_usd`, and calls stop at 100%. Each call also passes `--max-budget-usd`.
 - **Jev is advisory, never a gate.** A Jev answer can stand in for an agent's fixed-option judgment only above a confidence floor, and the agent path runs on low confidence or any error. Mock and live replies pass the same wire-contract check (declared options only, a distribution that sums to 1); a violation is an error, never a degraded answer. Redirects are refused so the bearer token cannot leave the endpoint.

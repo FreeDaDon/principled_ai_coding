@@ -1,6 +1,7 @@
 [project]
 name = "principled-ai-coding"
-version = "0.1.0"
+version = "0.2.0"
+license = "MIT"
 description = "Principled AI Coding playbook & toolkit: IDK prompts, 5-layer specs, ADWs and the closed-loop Director, on Claude Code."
 requires-python = ">=3.12"
 dependencies = [

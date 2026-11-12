@@ -7,7 +7,8 @@
         evaluation = evaluate(execution)
         if evaluation.success: break    # else: feedback flows into the next prompt
 
-Stops on success, max_iterations, stagnation (same failure twice), budget, or agent error.
+Stops on success, max_iterations, stagnation (a failure seen before, so A-B-A oscillation counts), budget, or
+agent error.
 On failure the editable files are rolled back to their pre-loop state.
 
 CLI:  uv run python -m director_loop.engine examples/software/director.yaml
@@ -28,7 +29,7 @@ from adws.adw_modules.router import Budget, downgrade
 from adws.adw_modules.state import RunState
 from core.boundaries import EditableCheckpoint, check_bounds, guarded_run
 from core.execution import run_command
-from core.llm import Runner, get_runner
+from core.llm import Runner, get_runner, guard_reference_solution
 from core.security import fence_untrusted, resolve_inside
 from core.types import (
     AgentRequest,
@@ -66,6 +67,7 @@ class Director:
         self.stop_on_stagnation = stop_on_stagnation
         self.budget = Budget(config.budget_usd)
         check_bounds(self.base_dir, config.context_editable + config.context_read_only)
+        guard_reference_solution(self.runner, self.base_dir, config.mock_solution)
         self.evaluator = Evaluator(
             config.evaluator, self.runner, config.evaluator_model, self.base_dir,
             config.context_editable, config.context_read_only, config.context_token_budget,
@@ -141,7 +143,7 @@ class Director:
 
     # ------------------------------------------------------------------ stage 3: execution command
     def execute(self) -> ExecutionResult:
-        return run_command(self.config.execution_command, self.base_dir, self.config.execution_timeout_s)
+        return run_command(self.config.execution_command, self.base_dir, self.config.execution_timeout_s, self.config.sandbox)
 
     # ------------------------------------------------------------------ stage 4: evaluator
     def evaluate(self, base_prompt: str, execution: ExecutionResult) -> tuple[EvaluationResult, Usage]:
@@ -155,7 +157,7 @@ class Director:
         history: list[IterationRecord] = []
         execution: ExecutionResult | None = None
         evaluation: EvaluationResult | None = None
-        last_sig: str | None = None
+        seen: set[str] = set()
         stop: StopReason = "max_iterations"
         self.state.update(config=cfg.model_dump(), base_dir=str(self.base_dir))
 
@@ -186,10 +188,10 @@ class Director:
                 break
             sig = (failure_signature(execution.output) if execution.exit_code != 0
                    else hashlib.sha256((evaluation.feedback or "").encode()).hexdigest()[:16])
-            if self.stop_on_stagnation and sig == last_sig:
+            if self.stop_on_stagnation and sig in seen:
                 stop = "stagnation"
                 break
-            last_sig = sig
+            seen.add(sig)
 
         success = stop == "passed"
         rolled_back = False
