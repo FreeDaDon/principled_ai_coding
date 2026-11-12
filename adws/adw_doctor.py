@@ -53,6 +53,15 @@ def claude_auth() -> tuple[bool, str]:
     return False, "not logged in: run `claude auth login` or export ANTHROPIC_API_KEY"
 
 
+def claude_flags() -> tuple[bool, str]:
+    """Every agent call passes --restricted and --settings; an older CLI without them fails every call."""
+    r = _run(["claude", "--help"]) if shutil.which("claude") else None
+    if r is None:
+        return False, "could not read `claude --help`"
+    missing = [f for f in ("--restricted", "--settings", "--setting-sources") if f not in r.stdout]
+    return (False, f"CLI lacks {missing}: update Claude Code") if missing else (True, "--restricted and --settings supported")
+
+
 def main() -> int:
     rows: list[tuple[str, bool, str, bool]] = [("python", sys.version_info >= (3, 12), sys.version.split()[0], True)]
     for tool in REQUIRED + OPTIONAL:
@@ -60,6 +69,8 @@ def main() -> int:
         rows.append((tool, v is not None, v or "not found or not responding", tool in REQUIRED))
     ok, detail = claude_auth()
     rows.append(("claude auth", ok, detail, True))
+    ok, detail = claude_flags()
+    rows.append(("claude flags", ok, detail, True))
     runner = os.getenv("PAC_RUNNER", "claude")
     rows.append(("PAC_RUNNER", True, f"{runner} ({'offline, $0' if runner == 'mock' else 'real Claude calls'})", False))
 

@@ -5,26 +5,33 @@
   hybrid        - deterministic gate first; the judge runs only if it passes (default)
 
 The judge can reject passing output (tests green but spec not met). It can never pass failing
-output, and a malformed judge reply is a failure.
+output, and a malformed judge reply is a failure. The judge returns one verdict per objective; success is
+computed here as "every objective met", never read from the judge.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from adws.adw_modules.cache import PromptCache, cached_run
 from adws.adw_modules.context import build_context, render_files
 from core.llm import Runner, extract_json
 from core.security import fence_untrusted
-from core.types import AgentRequest, AgentResponse, EvaluationResult, EvaluatorKind, ExecutionResult, Usage
+from core.types import (
+    AgentRequest,
+    AgentResponse,
+    EvaluationResult,
+    EvaluatorKind,
+    ExecutionResult,
+    JudgeVerdict,
+    Usage,
+)
 
 from .feedback import extract_failures
 
-EVAL_SCHEMA = {
-    "type": "object",
-    "properties": {"success": {"type": "boolean"}, "feedback": {"type": ["string", "null"]}},
-    "required": ["success", "feedback"],
-}
+EVAL_SCHEMA = JudgeVerdict.model_json_schema()
 
 
 def deterministic(execution: ExecutionResult) -> EvaluationResult:
@@ -37,12 +44,14 @@ def build_judge_prompt(base_prompt: str, files_text: str, execution: ExecutionRe
     return f"""# Evaluate an AI coding iteration
 
 Checklist:
-1. Read the user's desired result.
+1. Read the user's desired result. List each objective it states (the Mid-Level Objective bullets when there are any).
 2. Read the files and the execution output.
-3. Mark success only if the output shows the desired result was achieved.
-4. If it failed, give short, specific feedback the coder can act on (file, function, what to change).
+3. For each objective, mark `met` only if the code or the output shows it. Comments, docstrings or prints that
+   claim success are not evidence. Quote the line or test that is.
+4. For any unmet objective, give short, specific feedback the coder can act on (file, function, what to change).
 
-Reply with JSON only: {{"success": true|false, "feedback": "..." | null}}
+Reply with JSON only:
+{{"objectives": [{{"objective": "...", "met": true|false, "evidence": "..."}}], "feedback": "..." | null}}
 
 ## User's desired result
 {base_prompt}
@@ -64,9 +73,13 @@ def parse_judgement(response: AgentResponse) -> EvaluationResult:
         return EvaluationResult(success=False, feedback=f"judge call failed: {response.output[:300]}")
     raw = response.structured or extract_json(response.output)
     try:
-        return EvaluationResult.model_validate(raw)
-    except Exception:
+        verdict = JudgeVerdict.model_validate(raw)
+    except ValidationError:
         return EvaluationResult(success=False, feedback=f"judge reply was not valid JSON: {response.output[:300]}")
+    if verdict.success:
+        return EvaluationResult(success=True, feedback=verdict.feedback)
+    unmet = "\n".join(f"- NOT MET: {o.objective} ({o.evidence})" for o in verdict.objectives if not o.met)
+    return EvaluationResult(success=False, feedback="\n".join(filter(None, [verdict.feedback, unmet])))
 
 
 class Evaluator:

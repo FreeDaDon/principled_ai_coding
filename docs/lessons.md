@@ -60,10 +60,10 @@ and automation.
 ## 7. The closed-loop Director and self-healing
 
 - **Loop:** `create_new_ai_coding_prompt` → `ai_code` → `execute` → `evaluate` → feedback, up to `max_iterations`.
-- **Evaluator:** returns `EvaluationResult{success, feedback}`, parsed as JSON. In `hybrid` (the default) the test exit code gates the LLM judge.
+- **Evaluator:** the judge returns a `JudgeVerdict` (one `{objective, met, evidence}` per objective, plus feedback), parsed as JSON; success is computed in code as every objective met. In `hybrid` (the default) the test exit code gates the LLM judge.
 - **Stack-trace hand-off:** `director_loop/feedback.py` extracts pytest failure sections, the last traceback, or lint lines, truncated head and tail, and fenced as untrusted data.
 - **Deterministic verification:** nothing counts as success unless the execution command passes. `--commit` commits only after that.
-- **Rollback:** the editable files are checkpointed before the loop and restored on failure, replacing Aider's `/undo`. Stagnation detection stops a loop that isn't converging.
+- **Rollback:** the editable files are checkpointed before the loop and restored on failure, replacing Aider's `/undo`. Stagnation detection stops a loop that isn't converging, including one that oscillates between failures.
 - **Limitation, from the course:** if your execution command gives no feedback, the pattern doesn't work. Make it represent the whole behavior (tests, not just a build).
 
 ## 8. Principled AI coding: orchestration, signal over noise

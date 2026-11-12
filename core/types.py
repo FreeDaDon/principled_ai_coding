@@ -16,6 +16,7 @@ Role = Literal["coder", "architect", "editor", "evaluator", "writer"]
 EvaluatorKind = Literal["deterministic", "llm", "hybrid"]
 PromptLevel = Literal["too_high", "balanced", "too_low"]
 StopReason = Literal["passed", "max_iterations", "stagnation", "budget", "agent_error"]
+Sandbox = Literal["none", "bwrap"]
 
 
 # ----------------------------------------------------------------------------- specs (L3/L5)
@@ -142,6 +143,7 @@ class DirectorConfig(BaseModel):
     budget_usd: float = Field(default=2.0, ge=0)
     context_token_budget: int = Field(default=40_000, ge=1_000)
     execution_timeout_s: int = Field(default=300, ge=1)
+    sandbox: Sandbox = "none"
     mock_solution: str | None = None
 
 
@@ -155,6 +157,27 @@ class ExecutionResult(BaseModel):
 class EvaluationResult(BaseModel):
     success: bool
     feedback: str | None = None
+
+
+class ObjectiveVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objective: str = Field(min_length=1)
+    met: bool
+    evidence: str
+
+
+class JudgeVerdict(BaseModel):
+    """What the LLM judge must return. Success is computed from `objectives`, never taken from the judge."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    objectives: list[ObjectiveVerdict] = Field(min_length=1)
+    feedback: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return all(o.met for o in self.objectives)
 
 
 class IterationRecord(BaseModel):
@@ -174,6 +197,19 @@ class DirectorResult(BaseModel):
     run_dir: str = ""
     history: list[IterationRecord] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
+
+
+class EvalRecord(BaseModel):
+    """One Director run over one example, appended to the eval log so pass rates are measured, not claimed."""
+
+    example: str
+    runner: Literal["mock", "claude"]
+    coder_model: str
+    success: bool
+    stop_reason: StopReason
+    iterations: int
+    cost_usd: float
+    at: str
 
 
 # ----------------------------------------------------------------------------- domain packs

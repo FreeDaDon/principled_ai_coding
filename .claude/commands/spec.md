@@ -1,6 +1,6 @@
 ---
 description: Write a 5-layer spec prompt for a task (plan equals prompt)
-argument-hint: <what to build> [template: feature|bugfix|refactor|infra_change|detection_rule|iam_policy]
+argument-hint: <what to build> [template: feature|bugfix|refactor|infra_change|detection_rule|iam_policy|ai_connector_review|gcp_incident]
 ---
 # Write a spec prompt
 

@@ -43,11 +43,23 @@ def resolve_inside(root: str | Path, candidate: str | Path) -> Path:
     return full
 
 
+# Execution commands run code an agent wrote, so they get neither the model key nor the operator's HOME.
+EXEC_ENV_KEYS = SAFE_ENV_KEYS - {"ANTHROPIC_API_KEY", "CLAUDE_CODE_PATH", "HOME"}
+
+
 def safe_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
-    """Allowlisted environment for agent and execution subprocesses; secrets are never inherited wholesale."""
+    """Allowlisted environment for agent subprocesses; secrets are never inherited wholesale."""
     env = {k: v for k, v in os.environ.items() if k in SAFE_ENV_KEYS}
     env.setdefault("PYTHONUNBUFFERED", "1")
     env.update(extra or {})
+    return env
+
+
+def exec_subprocess_env(home: str) -> dict[str, str]:
+    """Environment for running agent-written code: the narrower allowlist, with HOME pointed at `home`."""
+    env = {k: v for k, v in os.environ.items() if k in EXEC_ENV_KEYS}
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    env["HOME"] = home
     return env
 
 

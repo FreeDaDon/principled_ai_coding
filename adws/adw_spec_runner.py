@@ -19,9 +19,9 @@ from adws.adw_modules.state import RunState
 from core import pitfalls
 from core.boundaries import check_bounds, guarded_run
 from core.execution import run_command
-from core.llm import Runner, get_runner
+from core.llm import Runner, get_runner, guard_reference_solution
 from core.security import SecurityError
-from core.types import AgentRequest, DirectorConfig, Spec
+from core.types import AgentRequest, DirectorConfig, Sandbox, Spec
 from director_loop.engine import Director
 from specs.spec_validator import parse_spec, validate
 
@@ -52,6 +52,7 @@ def run_spec(
     mock_solution: str | None = None,
     runner: Runner | None = None,
     dry_run: bool = False,
+    sandbox: Sandbox = "none",
 ) -> int:
     text = spec_path.read_text()
     spec = parse_spec(text)
@@ -76,6 +77,11 @@ def run_spec(
         return 0
 
     runner = runner or get_runner()
+    try:
+        guard_reference_solution(runner, working_dir, mock_solution)
+    except SecurityError as exc:
+        print(f"FAIL: {exc}")
+        return 2
     state = RunState("spec_runner")
     state.update(spec=str(spec_path), working_dir=str(working_dir), per_task=per_task)
     metadata = {"mock_solution": mock_solution} if mock_solution else {}
@@ -95,7 +101,7 @@ def run_spec(
     if not validate_cmd:
         print(f"DONE: applied {len(prompts)} prompt(s); no --validate-cmd given, so nothing was verified. Run: {state.dir}")
         return 0
-    execution = run_command(validate_cmd, working_dir)
+    execution = run_command(validate_cmd, working_dir, sandbox=sandbox)
     state.step("validate", exit_code=execution.exit_code)
     if execution.exit_code == 0:
         print(f"PASSED: spec applied and `{validate_cmd}` is green. Run: {state.dir}")
@@ -108,7 +114,7 @@ def run_spec(
     print(f"validation failed (exit {execution.exit_code}); handing off to the Director for {director_on_fail} iteration(s)")
     config = DirectorConfig(prompt=text, coder_model=model, execution_command=validate_cmd,
                             context_editable=spec.editable_files, context_read_only=spec.read_only_files,
-                            max_iterations=director_on_fail, mock_solution=mock_solution)
+                            max_iterations=director_on_fail, mock_solution=mock_solution, sandbox=sandbox)
     result = Director(config, working_dir, runner=runner).direct()
     print(f"{'PASSED' if result.success else 'FAIL'}: director {result.stop_reason} after {result.iterations} "
           f"iteration(s); log {result.run_dir}/director_log.md")
@@ -125,9 +131,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--director-on-fail", type=int, default=0, metavar="N")
     ap.add_argument("--mock-solution", help="reference solution dir (PAC_RUNNER=mock only)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--sandbox", choices=["none", "bwrap"], default="none",
+                    help="bwrap: run the validation command with no network and no access to your home directory")
     a = ap.parse_args(argv)
     return run_spec(a.spec, (a.working_dir or a.spec.parent).resolve(), a.model, a.per_task, a.validate_cmd,
-                    a.director_on_fail, a.mock_solution, dry_run=a.dry_run)
+                    a.director_on_fail, a.mock_solution, dry_run=a.dry_run, sandbox=a.sandbox)
 
 
 if __name__ == "__main__":

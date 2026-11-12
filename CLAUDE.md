@@ -1,6 +1,7 @@
 # Principled AI Coding toolkit
 
-- Gate before every commit: `scripts/check.sh` (ruff, mypy, pytest). The tests are offline (`PAC_RUNNER=mock`); keep them that way.
+- Gate before every commit: `scripts/check.sh` (ruff, mypy, pytest), enforced by `.githooks/pre-commit` (`git config core.hooksPath .githooks`) and the `.claude/hooks/commit_gate.py` hook. Never bypass it with `--no-verify`. The tests are offline (`PAC_RUNNER=mock`); keep them that way.
+- Agent-written code is untrusted too: execution commands go through `core.execution.run_command` (no API key, throwaway HOME, optional `sandbox: bwrap`). A live runner never runs next to a reference solution (`core.llm.guard_reference_solution`). Measure behavior changes with `adws/adw_eval.py`.
 - Types first: new interfaces go in `core/types.py` as pydantic models before any logic uses them.
 - Prompts and specs use IDKs: `LOCATION: ACTION DETAIL`, capitalized action keywords. Validate specs with `uv run python -m specs.spec_validator <spec>`.
 - Model output is untrusted: parse it into a model; malformed = failure. Untrusted text goes into prompts through `core.security.fence_untrusted`.
